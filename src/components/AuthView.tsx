@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { GraduationCap, Mail, Lock, User, Loader2 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
-import { createProfile } from "@/lib/api";
 
 const AVATARS = ["🎓", "🧪", "📐", "📚", "🔬", "⚗️", "🦊", "🐱", "🐧", "🦉"];
 
@@ -18,19 +17,39 @@ export default function AuthView() {
     e.preventDefault();
     setError(null);
     setLoading(true);
+
     try {
       if (mode === "signup") {
-        const { data, error } = await supabase.auth.signUp({ email, password });
-        if (error) throw error;
-        if (data.user) {
-          await createProfile(displayName || email.split("@")[0], avatar);
+        const name = displayName.trim();
+
+        if (!name) {
+          throw new Error("Введите имя");
         }
+
+        const { error } = await supabase.auth.signUp({
+          email: email.trim(),
+          password,
+          options: {
+            data: {
+              display_name: name,
+              avatar_emoji: avatar,
+            },
+          },
+        });
+
+        if (error) throw error;
       } else {
-        const { error } = await supabase.auth.signInWithPassword({ email, password });
+        const { error } = await supabase.auth.signInWithPassword({
+          email: email.trim(),
+          password,
+        });
+
         if (error) throw error;
       }
     } catch (err) {
-      const msg = err instanceof Error ? err.message : "Что-то пошло не так";
+      const msg =
+        err instanceof Error ? err.message : "Что-то пошло не так";
+
       setError(msg);
     } finally {
       setLoading(false);
@@ -44,14 +63,24 @@ export default function AuthView() {
           <div className="w-16 h-16 rounded-2xl bg-teal-600 flex items-center justify-center mb-3">
             <GraduationCap className="w-8 h-8 text-white" />
           </div>
-          <h1 className="text-xl font-bold text-gray-900">Группа 163</h1>
-          <p className="text-sm text-gray-400 mt-1">СПбГТИ (ТУ)</p>
+
+          <h1 className="text-xl font-bold text-gray-900">
+            Группа 163
+          </h1>
+
+          <p className="text-sm text-gray-400 mt-1">
+            СПбГТИ (ТУ)
+          </p>
         </div>
 
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
           <div className="flex gap-2 mb-5">
             <button
-              onClick={() => setMode("signin")}
+              type="button"
+              onClick={() => {
+                setMode("signin");
+                setError(null);
+              }}
               className={`flex-1 py-2.5 rounded-xl font-medium text-sm transition-colors ${
                 mode === "signin"
                   ? "bg-teal-600 text-white"
@@ -60,8 +89,13 @@ export default function AuthView() {
             >
               Вход
             </button>
+
             <button
-              onClick={() => setMode("signup")}
+              type="button"
+              onClick={() => {
+                setMode("signup");
+                setError(null);
+              }}
               className={`flex-1 py-2.5 rounded-xl font-medium text-sm transition-colors ${
                 mode === "signup"
                   ? "bg-teal-600 text-white"
@@ -76,20 +110,30 @@ export default function AuthView() {
             {mode === "signup" && (
               <>
                 <div>
-                  <label className="block text-xs font-medium text-gray-500 mb-1">Имя</label>
+                  <label className="block text-xs font-medium text-gray-500 mb-1">
+                    Имя
+                  </label>
+
                   <div className="relative">
                     <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+
                     <input
                       type="text"
                       value={displayName}
                       onChange={(e) => setDisplayName(e.target.value)}
                       placeholder="Как тебя зовут?"
+                      required
+                      maxLength={50}
                       className="w-full pl-10 pr-3 py-2.5 rounded-xl border border-gray-200 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent bg-gray-50"
                     />
                   </div>
                 </div>
+
                 <div>
-                  <label className="block text-xs font-medium text-gray-500 mb-1">Аватар</label>
+                  <label className="block text-xs font-medium text-gray-500 mb-1">
+                    Аватар
+                  </label>
+
                   <div className="flex flex-wrap gap-2">
                     {AVATARS.map((a) => (
                       <button
@@ -111,24 +155,33 @@ export default function AuthView() {
             )}
 
             <div>
-              <label className="block text-xs font-medium text-gray-500 mb-1">Email</label>
+              <label className="block text-xs font-medium text-gray-500 mb-1">
+                Email
+              </label>
+
               <div className="relative">
                 <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+
                 <input
                   type="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   placeholder="email@example.com"
                   required
+                  autoComplete="email"
                   className="w-full pl-10 pr-3 py-2.5 rounded-xl border border-gray-200 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent bg-gray-50"
                 />
               </div>
             </div>
 
             <div>
-              <label className="block text-xs font-medium text-gray-500 mb-1">Пароль</label>
+              <label className="block text-xs font-medium text-gray-500 mb-1">
+                Пароль
+              </label>
+
               <div className="relative">
                 <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+
                 <input
                   type="password"
                   value={password}
@@ -136,13 +189,18 @@ export default function AuthView() {
                   placeholder="Минимум 6 символов"
                   required
                   minLength={6}
+                  autoComplete={
+                    mode === "signup" ? "new-password" : "current-password"
+                  }
                   className="w-full pl-10 pr-3 py-2.5 rounded-xl border border-gray-200 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent bg-gray-50"
                 />
               </div>
             </div>
 
             {error && (
-              <p className="text-sm text-red-600 bg-red-50 rounded-xl px-3 py-2">{error}</p>
+              <p className="text-sm text-red-600 bg-red-50 rounded-xl px-3 py-2">
+                {error}
+              </p>
             )}
 
             <button
@@ -150,8 +208,13 @@ export default function AuthView() {
               disabled={loading}
               className="w-full flex items-center justify-center gap-2 py-3 bg-teal-600 text-white rounded-xl font-bold text-sm hover:bg-teal-700 transition-colors disabled:opacity-50"
             >
-              {loading && <Loader2 className="w-4 h-4 animate-spin" />}
-              {mode === "signin" ? "Войти" : "Создать аккаунт"}
+              {loading && (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              )}
+
+              {mode === "signin"
+                ? "Войти"
+                : "Создать аккаунт"}
             </button>
           </form>
         </div>
