@@ -1,6 +1,11 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { Dices, RotateCcw, Trophy, Sparkles, Loader2 } from "lucide-react";
-import { fetchSlotsState, upsertSlotsState, updateProfileStats, fetchProfile } from "@/lib/api";
+import {
+  fetchSlotsState,
+  upsertSlotsState,
+  updateProfileStats,
+  fetchProfile,
+} from "@/lib/api";
 import { supabase } from "@/lib/supabase";
 
 const SYMBOLS = [
@@ -22,17 +27,19 @@ const PAYOUTS: Record<string, number> = {
 };
 
 interface ReelState {
-  symbol: typeof SYMBOLS[0];
+  symbol: (typeof SYMBOLS)[0];
   spinning: boolean;
 }
 
-function pickWeighted(): typeof SYMBOLS[0] {
+function pickWeighted(): (typeof SYMBOLS)[0] {
   const total = SYMBOLS.reduce((s, x) => s + x.weight, 0);
   let r = Math.random() * total;
+
   for (const sym of SYMBOLS) {
     r -= sym.weight;
     if (r <= 0) return sym;
   }
+
   return SYMBOLS[0];
 }
 
@@ -42,20 +49,25 @@ export default function SlotsView() {
     { symbol: SYMBOLS[1], spinning: false },
     { symbol: SYMBOLS[2], spinning: false },
   ]);
+
   const [spinning, setSpinning] = useState(false);
   const [balance, setBalance] = useState(1000);
   const [bet, setBet] = useState(50);
   const [lastWin, setLastWin] = useState<number | null>(null);
   const [winMessage, setWinMessage] = useState<string | null>(null);
-  const [history, setHistory] = useState<{ win: number; symbols: string }[]>([]);
+  const [history, setHistory] = useState<
+    { win: number; symbols: string }[]
+  >([]);
   const [loading, setLoading] = useState(true);
   const [totalWon, setTotalWon] = useState(0);
   const [spins, setSpins] = useState(0);
   const [maxBalance, setMaxBalance] = useState(1000);
+
   const spinTimers = useRef<ReturnType<typeof setInterval>[]>([]);
 
   useEffect(() => {
     loadState();
+
     return () => {
       spinTimers.current.forEach(clearInterval);
     };
@@ -64,120 +76,219 @@ export default function SlotsView() {
   async function loadState() {
     try {
       const state = await fetchSlotsState();
-      const profile = await fetchProfile((await supabase.auth.getUser()).data.user!.id);
+
+      const profile = await fetchProfile(
+        (await supabase.auth.getUser()).data.user!.id
+      );
+
       if (state) {
         setBalance(state.balance);
-        setBet(state.bet);
+        setBet(Math.min(state.balance, Math.max(10, state.bet)));
         setHistory(state.history || []);
       }
+
       if (profile) {
         setTotalWon(profile.total_won);
         setSpins(profile.spins);
         setMaxBalance(profile.max_balance);
+
         if (state && state.balance > profile.max_balance) {
           setMaxBalance(state.balance);
         }
       }
     } catch {
-      // ignore — defaults are fine
+      // ignore
     } finally {
       setLoading(false);
     }
   }
 
-  async function saveState(newBalance: number, newBet: number, newHistory: { win: number; symbols: string }[], won: number) {
+  async function saveState(
+    newBalance: number,
+    newBet: number,
+    newHistory: { win: number; symbols: string }[],
+    won: number
+  ) {
     try {
       await upsertSlotsState(newBalance, newBet, newHistory);
+
       const newSpins = spins + 1;
       const newTotalWon = totalWon + won;
       const newMax = Math.max(maxBalance, newBalance);
+
       setSpins(newSpins);
       setTotalWon(newTotalWon);
       setMaxBalance(newMax);
+
       await updateProfileStats(newMax, newTotalWon, newSpins);
     } catch {
-      // silent fail — state saved on next spin
+      // silent fail
     }
   }
 
   const spin = useCallback(() => {
-    if (spinning || balance < bet) return;
+    if (spinning || balance < bet || bet < 10) return;
 
     setSpinning(true);
     setLastWin(null);
     setWinMessage(null);
     setBalance((b) => b - bet);
 
-    const finalSymbols = [pickWeighted(), pickWeighted(), pickWeighted()];
+    const finalSymbols = [
+      pickWeighted(),
+      pickWeighted(),
+      pickWeighted(),
+    ];
 
     for (let i = 0; i < 3; i++) {
       const interval = setInterval(() => {
         setReels((prev) => {
           const copy = [...prev];
-          copy[i] = { symbol: pickWeighted(), spinning: true };
+
+          copy[i] = {
+            symbol: pickWeighted(),
+            spinning: true,
+          };
+
           return copy;
         });
       }, 80);
+
       spinTimers.current.push(interval);
 
       setTimeout(
         () => {
           clearInterval(interval);
-          spinTimers.current = spinTimers.current.filter((t) => t !== interval);
+
+          spinTimers.current = spinTimers.current.filter(
+            (t) => t !== interval
+          );
+
           setReels((prev) => {
             const copy = [...prev];
-            copy[i] = { symbol: finalSymbols[i], spinning: false };
+
+            copy[i] = {
+              symbol: finalSymbols[i],
+              spinning: false,
+            };
+
             return copy;
           });
 
           if (i === 2) {
             setTimeout(() => {
               setSpinning(false);
+
               const all = finalSymbols;
-              const allMatch = all[0].emoji === all[1].emoji && all[1].emoji === all[2].emoji;
+
+              const allMatch =
+                all[0].emoji === all[1].emoji &&
+                all[1].emoji === all[2].emoji;
+
               const twoMatch =
-                all[0].emoji === all[1].emoji || all[1].emoji === all[2].emoji || all[0].emoji === all[2].emoji;
+                all[0].emoji === all[1].emoji ||
+                all[1].emoji === all[2].emoji ||
+                all[0].emoji === all[2].emoji;
 
               let win = 0;
               let msg: string | null = null;
 
               if (allMatch) {
                 win = bet * (PAYOUTS[all[0].emoji] || 5);
-                if (all[0].emoji === "💰") msg = "ДЖЕКПОТ! Стипендия получена!";
-                else if (all[0].emoji === "🔥") msg = "Огненный выигрыш!";
-                else msg = `Три в ряд! +${win}`;
+
+                if (all[0].emoji === "💰") {
+                  msg = "ДЖЕКПОТ! Стипендия получена!";
+                } else if (all[0].emoji === "🔥") {
+                  msg = "Огненный выигрыш!";
+                } else {
+                  msg = `Три в ряд! +${win}`;
+                }
               } else if (twoMatch) {
                 const matchSym =
-                  all[0].emoji === all[1].emoji ? all[0] : all[1].emoji === all[2].emoji ? all[1] : all[0];
-                win = Math.floor(bet * (PAYOUTS[matchSym.emoji] || 5) * 0.3);
+                  all[0].emoji === all[1].emoji
+                    ? all[0]
+                    : all[1].emoji === all[2].emoji
+                      ? all[1]
+                      : all[0];
+
+                win = Math.floor(
+                  bet * (PAYOUTS[matchSym.emoji] || 5) * 0.3
+                );
+
                 msg = `Пара! +${win}`;
               }
 
-              const newBalance = win > 0 ? balance - bet + win : balance - bet;
+              const newBalance =
+                win > 0 ? balance - bet + win : balance - bet;
+
+              setBalance(newBalance);
+
               if (win > 0) {
-                setBalance(newBalance);
                 setLastWin(win);
                 setWinMessage(msg);
               } else {
-                setBalance(newBalance);
                 setLastWin(0);
               }
 
               const newHistory = [
-                { win, symbols: all.map((s) => s.emoji).join("") },
+                {
+                  win,
+                  symbols: all.map((s) => s.emoji).join(""),
+                },
                 ...history.slice(0, 9),
               ];
+
               setHistory(newHistory);
-              saveState(newBalance, bet, newHistory, win);
+
+              saveState(
+                newBalance,
+                bet,
+                newHistory,
+                win
+              );
             }, 150);
           }
         },
         600 + i * 400
       );
     }
-  }, [spinning, balance, bet, history, totalWon, spins, maxBalance]);
+  }, [
+    spinning,
+    balance,
+    bet,
+    history,
+    totalWon,
+    spins,
+    maxBalance,
+  ]);
 
-  const canSpin = !spinning && balance >= bet;
+  const handleBetChange = (
+    e: React.ChangeEvent<HTMLInputElement>
+  ) => {
+    const value = e.target.value;
+
+    if (value === "") {
+      setBet(0);
+      return;
+    }
+
+    const number = Number(value);
+
+    if (!Number.isFinite(number)) return;
+
+    setBet(
+      Math.min(
+        balance,
+        Math.max(10, Math.floor(number))
+      )
+    );
+  };
+
+  const canSpin =
+    !spinning &&
+    bet >= 10 &&
+    bet <= balance &&
+    balance >= bet;
 
   if (loading) {
     return (
@@ -189,31 +300,42 @@ export default function SlotsView() {
 
   return (
     <div className="space-y-4">
-      {/* Balance */}
       <div className="bg-gradient-to-br from-teal-600 to-teal-700 rounded-2xl p-5 text-white shadow-lg">
         <div className="flex items-center justify-between">
           <div>
-            <p className="text-teal-100 text-xs font-medium">Баланс</p>
-            <p className="text-3xl font-bold mt-0.5">{balance.toLocaleString("ru-RU")} ₽</p>
+            <p className="text-teal-100 text-xs font-medium">
+              Баланс
+            </p>
+
+            <p className="text-3xl font-bold mt-0.5">
+              {balance.toLocaleString("ru-RU")} ₽
+            </p>
           </div>
+
           <div className="w-12 h-12 rounded-full bg-white/20 flex items-center justify-center">
             <Trophy className="w-6 h-6 text-white" />
           </div>
         </div>
+
         <div className="flex gap-3 mt-3">
           {lastWin !== null && lastWin > 0 && (
             <div className="bg-white/20 rounded-lg px-3 py-1.5 inline-flex items-center gap-1.5">
               <Sparkles className="w-4 h-4 text-yellow-300" />
-              <span className="text-sm font-medium">+{lastWin} ₽</span>
+
+              <span className="text-sm font-medium">
+                +{lastWin} ₽
+              </span>
             </div>
           )}
+
           <div className="bg-white/10 rounded-lg px-3 py-1.5 inline-flex items-center gap-1.5">
-            <span className="text-xs text-teal-100">Рекорд: {maxBalance.toLocaleString("ru-RU")} ₽</span>
+            <span className="text-xs text-teal-100">
+              Рекорд: {maxBalance.toLocaleString("ru-RU")} ₽
+            </span>
           </div>
         </div>
       </div>
 
-      {/* Slot machine */}
       <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
         <div className="bg-gray-900 rounded-xl p-4 mb-4">
           <div className="flex items-center justify-center gap-2">
@@ -221,10 +343,16 @@ export default function SlotsView() {
               <div
                 key={i}
                 className={`flex-1 aspect-square max-w-[80px] bg-white rounded-xl flex items-center justify-center text-4xl transition-all ${
-                  reel.spinning ? "scale-90 opacity-70" : "scale-100 opacity-100"
+                  reel.spinning
+                    ? "scale-90 opacity-70"
+                    : "scale-100 opacity-100"
                 }`}
               >
-                <span className={reel.spinning ? "animate-pulse" : ""}>
+                <span
+                  className={
+                    reel.spinning ? "animate-pulse" : ""
+                  }
+                >
                   {reel.symbol.emoji}
                 </span>
               </div>
@@ -234,24 +362,54 @@ export default function SlotsView() {
 
         {winMessage && (
           <div className="text-center mb-3">
-            <p className="text-sm font-bold text-teal-600 animate-pulse">{winMessage}</p>
+            <p className="text-sm font-bold text-teal-600 animate-pulse">
+              {winMessage}
+            </p>
           </div>
         )}
 
-        {/* Bet selector */}
         <div className="flex items-center justify-between mb-3">
-          <span className="text-xs font-medium text-gray-500">Ставка</span>
+          <span className="text-xs font-medium text-gray-500">
+            Ставка
+          </span>
+
           <div className="flex items-center gap-2">
             <button
-              onClick={() => setBet((b) => Math.max(10, b - 10))}
+              onClick={() =>
+                setBet((b) => Math.max(10, b - 10))
+              }
               disabled={spinning}
               className="w-8 h-8 rounded-lg bg-gray-100 text-gray-600 font-bold flex items-center justify-center disabled:opacity-40"
             >
               −
             </button>
-            <span className="text-sm font-bold text-gray-900 w-12 text-center">{bet} ₽</span>
+
+            <input
+              type="number"
+              inputMode="numeric"
+              min="10"
+              max={balance}
+              step="1"
+              value={bet === 0 ? "" : bet}
+              onChange={handleBetChange}
+              disabled={spinning}
+              aria-label="Сумма ставки"
+              className="text-sm font-bold text-gray-900 w-16 h-8 text-center bg-gray-50 rounded-lg px-1 outline-none border border-transparent focus:border-teal-500 focus:ring-2 focus:ring-teal-100 disabled:opacity-40"
+            />
+
+            <span className="text-sm font-bold text-gray-900">
+              ₽
+            </span>
+
             <button
-              onClick={() => setBet((b) => Math.min(balance, b + 10))}
+              onClick={() =>
+                setBet((b) =>
+                  Math.min(
+                    balance,
+                    Math.max(10, b + 10)
+                  )
+                )
+              }
               disabled={spinning}
               className="w-8 h-8 rounded-lg bg-gray-100 text-gray-600 font-bold flex items-center justify-center disabled:opacity-40"
             >
@@ -260,7 +418,6 @@ export default function SlotsView() {
           </div>
         </div>
 
-        {/* Spin button */}
         <button
           onClick={spin}
           disabled={!canSpin}
@@ -270,38 +427,78 @@ export default function SlotsView() {
               : "bg-gray-200 text-gray-400 cursor-not-allowed"
           }`}
         >
-          <Dices className={`w-5 h-5 ${spinning ? "animate-spin" : ""}`} />
+          <Dices
+            className={`w-5 h-5 ${
+              spinning ? "animate-spin" : ""
+            }`}
+          />
+
           {spinning ? "Крутим..." : "Крутить"}
         </button>
 
         {balance < bet && !spinning && (
-          <p className="text-center text-xs text-red-500 mt-2">Не хватает баланса на ставку</p>
+          <p className="text-center text-xs text-red-500 mt-2">
+            Не хватает баланса на ставку
+          </p>
+        )}
+
+        {bet > 0 && bet < 10 && !spinning && (
+          <p className="text-center text-xs text-red-500 mt-2">
+            Минимальная ставка — 10 ₽
+          </p>
         )}
       </div>
 
-      {/* Payouts */}
       <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4">
-        <h3 className="text-sm font-semibold text-gray-700 mb-3">Выплаты (3 в ряд)</h3>
+        <h3 className="text-sm font-semibold text-gray-700 mb-3">
+          Выплаты (3 в ряд)
+        </h3>
+
         <div className="grid grid-cols-3 gap-2">
           {SYMBOLS.map((sym) => (
-            <div key={sym.emoji} className="flex flex-col items-center bg-gray-50 rounded-lg py-2">
-              <span className="text-2xl mb-1">{sym.emoji}</span>
-              <span className="text-xs font-bold text-gray-700">×{PAYOUTS[sym.emoji] || 5}</span>
+            <div
+              key={sym.emoji}
+              className="flex flex-col items-center bg-gray-50 rounded-lg py-2"
+            >
+              <span className="text-2xl mb-1">
+                {sym.emoji}
+              </span>
+
+              <span className="text-xs font-bold text-gray-700">
+                ×{PAYOUTS[sym.emoji] || 5}
+              </span>
             </div>
           ))}
         </div>
-        <p className="text-xs text-gray-400 mt-2 text-center">Пара символов = 30% от выплаты</p>
+
+        <p className="text-xs text-gray-400 mt-2 text-center">
+          Пара символов = 30% от выплаты
+        </p>
       </div>
 
-      {/* History */}
       {history.length > 0 && (
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4">
-          <h3 className="text-sm font-semibold text-gray-700 mb-3">История</h3>
+          <h3 className="text-sm font-semibold text-gray-700 mb-3">
+            История
+          </h3>
+
           <div className="space-y-1.5">
             {history.map((h, i) => (
-              <div key={i} className="flex items-center justify-between text-sm">
-                <span className="text-lg">{h.symbols}</span>
-                <span className={h.win > 0 ? "text-teal-600 font-medium" : "text-gray-400"}>
+              <div
+                key={i}
+                className="flex items-center justify-between text-sm"
+              >
+                <span className="text-lg">
+                  {h.symbols}
+                </span>
+
+                <span
+                  className={
+                    h.win > 0
+                      ? "text-teal-600 font-medium"
+                      : "text-gray-400"
+                  }
+                >
                   {h.win > 0 ? `+${h.win} ₽` : "—"}
                 </span>
               </div>
@@ -310,15 +507,21 @@ export default function SlotsView() {
         </div>
       )}
 
-      {/* Reset */}
       {balance < bet && (
         <button
           onClick={async () => {
             const newBalance = 1000;
+
             setBalance(newBalance);
+            setBet(50);
             setLastWin(null);
             setWinMessage(null);
-            await upsertSlotsState(newBalance, bet, history);
+
+            await upsertSlotsState(
+              newBalance,
+              50,
+              history
+            );
           }}
           className="w-full flex items-center justify-center gap-2 py-2.5 px-4 bg-gray-100 text-gray-500 rounded-xl font-medium text-sm hover:bg-gray-200 transition-colors"
         >
