@@ -8,6 +8,9 @@ import {
   Dices,
   Trophy,
   LogOut,
+  Timer,
+  Shield,
+  Ban,
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { fetchProfile } from "@/lib/api";
@@ -17,9 +20,11 @@ import HomeworkView from "@/components/HomeworkView";
 import SlotsView from "@/components/SlotsView";
 import CandleView from "@/components/CandleView";
 import RatingView from "@/components/RatingView";
+import TimerView from "@/components/TimerView";
+import AdminView from "@/components/AdminView";
 import AuthView from "@/components/AuthView";
 
-type Tab = "schedule" | "homework" | "activity";
+type Tab = "schedule" | "homework" | "timer" | "activity" | "admin";
 type ActivityMode = "candle" | "slots" | "rating";
 
 export default function App() {
@@ -67,6 +72,26 @@ export default function App() {
     return <AuthView />;
   }
 
+  if (profile?.banned) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center px-4">
+        <div className="w-16 h-16 rounded-2xl bg-red-100 flex items-center justify-center mb-4">
+          <Ban className="w-8 h-8 text-red-500" />
+        </div>
+        <h1 className="text-xl font-bold text-gray-900 mb-2">Аккаунт заблокирован</h1>
+        <p className="text-sm text-gray-400 text-center mb-6">
+          Обратитесь к администратору, если считаете, что это ошибка.
+        </p>
+        <button
+          onClick={async () => await supabase.auth.signOut()}
+          className="px-6 py-2.5 bg-gray-100 text-gray-600 rounded-xl font-medium text-sm hover:bg-gray-200 transition-colors"
+        >
+          Выйти
+        </button>
+      </div>
+    );
+  }
+
   async function handleSignOut() {
     await supabase.auth.signOut();
   }
@@ -101,6 +126,10 @@ export default function App() {
           <ScheduleView />
         ) : activeTab === "homework" ? (
           <HomeworkView />
+        ) : activeTab === "timer" ? (
+          <TimerView />
+        ) : activeTab === "admin" ? (
+          <AdminView />
         ) : (
           <>
             {/* Sub-tab switcher */}
@@ -173,6 +202,15 @@ export default function App() {
             <span className="text-xs font-medium">Домашка</span>
           </button>
           <button
+            onClick={() => setActiveTab("timer")}
+            className={`flex-1 flex flex-col items-center gap-1 py-3 transition-colors ${
+              activeTab === "timer" ? "text-teal-600" : "text-gray-400"
+            }`}
+          >
+            <Timer className="w-5 h-5" />
+            <span className="text-xs font-medium">Таймер</span>
+          </button>
+          <button
             onClick={() => setActiveTab("activity")}
             className={`flex-1 flex flex-col items-center gap-1 py-3 transition-colors ${
               activeTab === "activity" ? "text-teal-600" : "text-gray-400"
@@ -181,6 +219,17 @@ export default function App() {
             <Sparkles className="w-5 h-5" />
             <span className="text-xs font-medium">Активность</span>
           </button>
+          {profile?.role === "admin" && (
+            <button
+              onClick={() => setActiveTab("admin")}
+              className={`flex-1 flex flex-col items-center gap-1 py-3 transition-colors ${
+                activeTab === "admin" ? "text-teal-600" : "text-gray-400"
+              }`}
+            >
+              <Shield className="w-5 h-5" />
+              <span className="text-xs font-medium">Админ</span>
+            </button>
+          )}
         </div>
       </nav>
     </div>
