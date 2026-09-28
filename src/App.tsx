@@ -11,6 +11,7 @@ import {
   Timer,
   Shield,
   Ban,
+  PawPrint,
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { fetchProfile } from "@/lib/api";
@@ -25,14 +26,18 @@ import AdminView from "@/components/AdminView";
 import AuthView from "@/components/AuthView";
 
 type Tab = "schedule" | "homework" | "timer" | "activity" | "admin";
-type ActivityMode = "candle" | "slots" | "rating";
+type ActivityMode = "candle" | "slots" | "rating" | "pets";
 
 export default function App() {
-  const [session, setSession] = useState<null | { user: { id: string; email: string } }>(null);
+  const [session, setSession] = useState<null | {
+    user: { id: string; email: string };
+  }>(null);
+
   const [profile, setProfile] = useState<Profile | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<Tab>("schedule");
-  const [activityMode, setActivityMode] = useState<ActivityMode>("candle");
+  const [activityMode, setActivityMode] =
+    useState<ActivityMode>("candle");
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
@@ -40,14 +45,17 @@ export default function App() {
       setAuthLoading(false);
     });
 
-    const { data: listener } = supabase.auth.onAuthStateChange((_event, sess) => {
-      (async () => {
-        setSession(sess as any);
-        if (!sess) {
-          setProfile(null);
-        }
-      })();
-    });
+    const { data: listener } = supabase.auth.onAuthStateChange(
+      (_event, sess) => {
+        (async () => {
+          setSession(sess as any);
+
+          if (!sess) {
+            setProfile(null);
+          }
+        })();
+      }
+    );
 
     return () => listener.subscription.unsubscribe();
   }, []);
@@ -163,11 +171,12 @@ export default function App() {
           <AdminView />
         ) : (
           <>
-            {/* Sub-tab switcher */}
-            <div className="flex gap-2 mb-4">
+            {/* Activity tabs */}
+            <div className="grid grid-cols-4 gap-2 mb-4">
+              {/* Свечка */}
               <button
                 onClick={() => setActivityMode("candle")}
-                className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 px-2 rounded-xl font-medium text-xs transition-all ${
+                className={`flex flex-col items-center justify-center gap-1.5 py-2.5 px-1 rounded-xl font-medium text-xs transition-all ${
                   activityMode === "candle"
                     ? "bg-gradient-to-r from-amber-500 to-orange-500 text-white shadow-md shadow-amber-200"
                     : "bg-white text-gray-500 border border-gray-100 hover:bg-gray-50"
@@ -177,9 +186,10 @@ export default function App() {
                 Свечка
               </button>
 
+              {/* Слоты */}
               <button
                 onClick={() => setActivityMode("slots")}
-                className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 px-2 rounded-xl font-medium text-xs transition-all ${
+                className={`flex flex-col items-center justify-center gap-1.5 py-2.5 px-1 rounded-xl font-medium text-xs transition-all ${
                   activityMode === "slots"
                     ? "bg-gradient-to-r from-teal-600 to-teal-700 text-white shadow-md shadow-teal-200"
                     : "bg-white text-gray-500 border border-gray-100 hover:bg-gray-50"
@@ -189,9 +199,10 @@ export default function App() {
                 Слоты
               </button>
 
+              {/* Рейтинг */}
               <button
                 onClick={() => setActivityMode("rating")}
-                className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 px-2 rounded-xl font-medium text-xs transition-all ${
+                className={`flex flex-col items-center justify-center gap-1.5 py-2.5 px-1 rounded-xl font-medium text-xs transition-all ${
                   activityMode === "rating"
                     ? "bg-gradient-to-r from-amber-600 to-yellow-600 text-white shadow-md shadow-amber-200"
                     : "bg-white text-gray-500 border border-gray-100 hover:bg-gray-50"
@@ -200,14 +211,109 @@ export default function App() {
                 <Trophy className="w-4 h-4" />
                 Рейтинг
               </button>
+
+              {/* Питомцы */}
+              <button
+                onClick={() => setActivityMode("pets")}
+                className={`flex flex-col items-center justify-center gap-1.5 py-2.5 px-1 rounded-xl font-medium text-xs transition-all ${
+                  activityMode === "pets"
+                    ? "bg-gradient-to-r from-violet-500 to-purple-600 text-white shadow-md shadow-violet-200"
+                    : "bg-white text-gray-500 border border-gray-100 hover:bg-gray-50"
+                }`}
+              >
+                <PawPrint className="w-4 h-4" />
+                Питомцы
+              </button>
             </div>
 
+            {/* Activity content */}
             {activityMode === "candle" ? (
               <CandleView />
             ) : activityMode === "slots" ? (
               <SlotsView />
-            ) : (
+            ) : activityMode === "rating" ? (
               <RatingView />
+            ) : (
+              /* Pets — coming soon */
+              <div className="relative overflow-hidden bg-white rounded-3xl border border-gray-100 shadow-sm">
+                {/* Декоративные лапки */}
+                <div className="absolute top-5 left-6 text-2xl opacity-20 rotate-[-20deg]">
+                  🐾
+                </div>
+
+                <div className="absolute top-12 right-7 text-xl opacity-20 rotate-12">
+                  🐾
+                </div>
+
+                <div className="absolute bottom-10 left-10 text-xl opacity-15 rotate-12">
+                  ✨
+                </div>
+
+                <div className="absolute bottom-7 right-10 text-2xl opacity-20 rotate-[-15deg]">
+                  🐾
+                </div>
+
+                <div className="px-6 py-12 text-center">
+                  {/* Иконка */}
+                  <div className="relative w-24 h-24 mx-auto mb-6">
+                    <div className="absolute inset-0 rounded-[2rem] bg-gradient-to-br from-violet-100 to-purple-100 animate-pulse" />
+
+                    <div className="relative w-full h-full rounded-[2rem] bg-gradient-to-br from-violet-100 to-purple-100 flex items-center justify-center">
+                      <PawPrint className="w-11 h-11 text-violet-500" />
+                    </div>
+                  </div>
+
+                  <h2 className="text-2xl font-bold text-gray-900 mb-3">
+                    Питомцы
+                  </h2>
+
+                  {/* Статус */}
+                  <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-violet-50 text-violet-600 text-xs font-semibold mb-5">
+                    <Sparkles className="w-3.5 h-3.5" />
+                    В разработке
+                  </div>
+
+                  <p className="text-sm text-gray-400 leading-relaxed max-w-xs mx-auto">
+                    Мы готовим кое-что милое.
+                    <br />
+                    Скоро здесь появятся ваши питомцы.
+                  </p>
+
+                  {/* Дата */}
+                  <div className="mt-7 px-5 py-4 rounded-2xl bg-gray-50 border border-gray-100">
+                    <p className="text-xs text-gray-400 mb-1">
+                      Первый релиз
+                    </p>
+
+                    <p className="text-lg font-bold text-gray-800">
+                      2 октября
+                    </p>
+
+                    <p className="text-xs text-gray-400 mt-1">
+                      Увидимся совсем скоро 🐾
+                    </p>
+                  </div>
+
+                  {/* Питомцы */}
+                  <div className="mt-7 flex justify-center items-end gap-4">
+                    <div className="text-4xl animate-bounce [animation-delay:0ms]">
+                      🐱
+                    </div>
+
+                    <div className="text-5xl animate-bounce [animation-delay:150ms]">
+                      🐶
+                    </div>
+
+                    <div className="text-4xl animate-bounce [animation-delay:300ms]">
+                      🐰
+                    </div>
+                  </div>
+
+                  <p className="mt-5 text-xs text-gray-300">
+                    Следите за обновлениями
+                  </p>
+                </div>
+              </div>
             )}
           </>
         )}
@@ -221,6 +327,7 @@ export default function App() {
         }}
       >
         <div className="max-w-md mx-auto flex">
+          {/* Расписание */}
           <button
             onClick={() => setActiveTab("schedule")}
             className={`flex-1 flex flex-col items-center gap-1 py-3 transition-colors ${
@@ -230,9 +337,12 @@ export default function App() {
             }`}
           >
             <CalendarDays className="w-5 h-5" />
-            <span className="text-xs font-medium">Расписание</span>
+            <span className="text-xs font-medium">
+              Расписание
+            </span>
           </button>
 
+          {/* Домашка */}
           <button
             onClick={() => setActiveTab("homework")}
             className={`flex-1 flex flex-col items-center gap-1 py-3 transition-colors ${
@@ -242,9 +352,12 @@ export default function App() {
             }`}
           >
             <BookOpen className="w-5 h-5" />
-            <span className="text-xs font-medium">Домашка</span>
+            <span className="text-xs font-medium">
+              Домашка
+            </span>
           </button>
 
+          {/* Таймер */}
           <button
             onClick={() => setActiveTab("timer")}
             className={`flex-1 flex flex-col items-center gap-1 py-3 transition-colors ${
@@ -254,9 +367,12 @@ export default function App() {
             }`}
           >
             <Timer className="w-5 h-5" />
-            <span className="text-xs font-medium">Таймер</span>
+            <span className="text-xs font-medium">
+              Таймер
+            </span>
           </button>
 
+          {/* Активность */}
           <button
             onClick={() => setActiveTab("activity")}
             className={`flex-1 flex flex-col items-center gap-1 py-3 transition-colors ${
@@ -266,9 +382,12 @@ export default function App() {
             }`}
           >
             <Sparkles className="w-5 h-5" />
-            <span className="text-xs font-medium">Активность</span>
+            <span className="text-xs font-medium">
+              Активность
+            </span>
           </button>
 
+          {/* Админ */}
           {profile?.role === "admin" && (
             <button
               onClick={() => setActiveTab("admin")}
@@ -279,7 +398,9 @@ export default function App() {
               }`}
             >
               <Shield className="w-5 h-5" />
-              <span className="text-xs font-medium">Админ</span>
+              <span className="text-xs font-medium">
+                Админ
+              </span>
             </button>
           )}
         </div>
