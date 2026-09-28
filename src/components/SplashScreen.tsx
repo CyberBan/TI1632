@@ -1,23 +1,14 @@
 import { useEffect, useState } from "react";
 
 export default function SplashScreen() {
-  const [visibleLetters, setVisibleLetters] = useState(0);
-  const text = "Расписание";
+  const [visible, setVisible] = useState(false);
 
   useEffect(() => {
-    const timers: number[] = [];
+    const timer = window.setTimeout(() => {
+      setVisible(true);
+    }, 100);
 
-    for (let i = 0; i <= text.length; i++) {
-      timers.push(
-        window.setTimeout(() => {
-          setVisibleLetters(i);
-        }, 120 + i * 70)
-      );
-    }
-
-    return () => {
-      timers.forEach(clearTimeout);
-    };
+    return () => window.clearTimeout(timer);
   }, []);
 
   return (
@@ -28,26 +19,23 @@ export default function SplashScreen() {
         paddingBottom: "env(safe-area-inset-bottom)",
       }}
     >
-      <div className="flex items-center">
-        {text.split("").map((letter, index) => (
-          <span
-            key={index}
-            className="text-[#0f9f78] font-semibold tracking-[-0.04em]"
-            style={{
-              fontSize: "clamp(36px, 10vw, 52px)",
-              lineHeight: 1,
-              opacity: index < visibleLetters ? 1 : 0,
-              transform:
-                index < visibleLetters
-                  ? "translateY(0)"
-                  : "translateY(5px)",
-              transition:
-                "opacity 280ms ease-out, transform 280ms ease-out",
-            }}
-          >
-            {letter}
-          </span>
-        ))}
+      <div
+        className="text-[#0f9f78]"
+        style={{
+          fontFamily:
+            '"Arial Narrow", "Roboto Condensed", "Helvetica Neue", sans-serif',
+          fontSize: "clamp(42px, 12vw, 64px)",
+          fontWeight: 700,
+          letterSpacing: "-0.055em",
+          transform: visible
+            ? "scaleX(1) translateY(0)"
+            : "scaleX(0.94) translateY(6px)",
+          opacity: visible ? 1 : 0,
+          transition:
+            "opacity 500ms cubic-bezier(0.22, 1, 0.36, 1), transform 700ms cubic-bezier(0.22, 1, 0.36, 1)",
+        }}
+      >
+        Расписание
       </div>
     </div>
   );
