@@ -1,42 +1,74 @@
 import { useEffect, useState } from "react";
 
 export default function SplashScreen() {
-  const [visible, setVisible] = useState(false);
+  const text = "Расписание";
+  const [visibleLetters, setVisibleLetters] = useState(0);
 
   useEffect(() => {
-    const timer = window.setTimeout(() => {
-      setVisible(true);
-    }, 100);
+    const timers: number[] = [];
 
-    return () => window.clearTimeout(timer);
+    text.split("").forEach((_, index) => {
+      timers.push(
+        window.setTimeout(() => {
+          setVisibleLetters(index + 1);
+        }, 250 + index * 130)
+      );
+    });
+
+    return () => {
+      timers.forEach(clearTimeout);
+    };
   }, []);
 
   return (
-    <div
-      className="fixed inset-0 z-[9999] bg-white flex items-center justify-center"
-      style={{
-        paddingTop: "env(safe-area-inset-top)",
-        paddingBottom: "env(safe-area-inset-bottom)",
-      }}
-    >
-      <div
-        className="text-[#0f9f78]"
-        style={{
-          fontFamily:
-            '"Arial Narrow", "Roboto Condensed", "Helvetica Neue", sans-serif',
-          fontSize: "clamp(42px, 12vw, 64px)",
-          fontWeight: 700,
-          letterSpacing: "-0.055em",
-          transform: visible
-            ? "scaleX(1) translateY(0)"
-            : "scaleX(0.94) translateY(6px)",
-          opacity: visible ? 1 : 0,
+    <>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Marck+Script&display=swap');
+
+        .splash-letter {
+          display: inline-block;
+          opacity: 0;
+          transform: translateY(10px);
           transition:
-            "opacity 500ms cubic-bezier(0.22, 1, 0.36, 1), transform 700ms cubic-bezier(0.22, 1, 0.36, 1)",
+            opacity 450ms ease-out,
+            transform 550ms cubic-bezier(0.22, 1, 0.36, 1);
+        }
+
+        .splash-letter.visible {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      `}</style>
+
+      <div
+        className="fixed inset-0 z-[9999] bg-white flex items-center justify-center"
+        style={{
+          paddingTop: "env(safe-area-inset-top)",
+          paddingBottom: "env(safe-area-inset-bottom)",
         }}
       >
-        Расписание
+        <div
+          style={{
+            fontFamily: "'Marck Script', cursive",
+            fontSize: "clamp(48px, 14vw, 72px)",
+            fontWeight: 400,
+            color: "#0b9f78",
+            whiteSpace: "nowrap",
+            lineHeight: 1,
+          }}
+        >
+          {text.split("").map((letter, index) => (
+            <span
+              key={index}
+              className={`splash-letter ${
+                index < visibleLetters ? "visible" : ""
+              }`}
+            >
+              {letter}
+            </span>
+          ))}
+        </div>
       </div>
-    </div>
+    </>
   );
 }
