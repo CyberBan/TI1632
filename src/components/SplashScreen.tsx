@@ -3,21 +3,21 @@ import { useEffect, useState } from "react";
 const TEXT = "Расписание";
 
 export default function SplashScreen() {
-  const [visible, setVisible] = useState(0);
+  const [visibleCount, setVisibleCount] = useState(0);
 
   useEffect(() => {
     const timers: number[] = [];
 
     TEXT.split("").forEach((_, index) => {
-      timers.push(
-        window.setTimeout(() => {
-          setVisible(index + 1);
-        }, 180 + index * 170)
-      );
+      const timer = window.setTimeout(() => {
+        setVisibleCount(index + 1);
+      }, 150 + index * 120);
+
+      timers.push(timer);
     });
 
     return () => {
-      timers.forEach((timer) => clearTimeout(timer));
+      timers.forEach(clearTimeout);
     };
   }, []);
 
@@ -26,63 +26,53 @@ export default function SplashScreen() {
       <style>{`
         @font-face {
           font-family: "Amiak NHZDN";
-          src: url("/fonts/Amiak-NHZDN.woff2") format("woff2");
-          font-weight: normal;
+          src: url("/fonts/amiak-nhzdn.ttf") format("truetype");
+          font-weight: 400;
           font-style: normal;
           font-display: swap;
         }
 
-        .splash {
-          position: fixed;
-          inset: 0;
-          z-index: 9999;
-          background: #ffffff;
-
-          display: flex;
-          align-items: center;
-          justify-content: center;
-
-          padding-top: env(safe-area-inset-top);
-          padding-bottom: env(safe-area-inset-bottom);
-        }
-
-        .splash-word {
-          display: flex;
-          white-space: nowrap;
-
-          font-family: "Amiak NHZDN", sans-serif;
-          font-size: clamp(48px, 14vw, 76px);
-          color: #0a9f78;
-          line-height: 1;
-        }
-
         .splash-letter {
           display: inline-block;
-
           opacity: 0;
+          transform: translateX(-10px);
           clip-path: inset(0 100% 0 0);
-          transform: translateX(-4px);
 
           transition:
-            clip-path 700ms cubic-bezier(0.16, 1, 0.3, 1),
-            opacity 180ms ease-out,
-            transform 700ms cubic-bezier(0.16, 1, 0.3, 1);
+            opacity 260ms ease-out,
+            transform 500ms cubic-bezier(0.22, 1, 0.36, 1),
+            clip-path 500ms cubic-bezier(0.22, 1, 0.36, 1);
         }
 
         .splash-letter.visible {
           opacity: 1;
-          clip-path: inset(0 0 0 0);
           transform: translateX(0);
+          clip-path: inset(0 0 0 0);
         }
       `}</style>
 
-      <div className="splash">
-        <div className="splash-word">
+      <div
+        className="fixed inset-0 z-[9999] bg-white flex items-center justify-center"
+        style={{
+          paddingTop: "env(safe-area-inset-top)",
+          paddingBottom: "env(safe-area-inset-bottom)",
+        }}
+      >
+        <div
+          style={{
+            fontFamily: '"Amiak NHZDN", sans-serif',
+            fontSize: "clamp(42px, 12vw, 68px)",
+            fontWeight: 400,
+            color: "#0A9F78",
+            lineHeight: 1,
+            whiteSpace: "nowrap",
+          }}
+        >
           {TEXT.split("").map((letter, index) => (
             <span
               key={`${letter}-${index}`}
               className={`splash-letter ${
-                index < visible ? "visible" : ""
+                index < visibleCount ? "visible" : ""
               }`}
             >
               {letter}
