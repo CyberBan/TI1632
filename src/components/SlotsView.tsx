@@ -46,14 +46,14 @@ interface HistoryItem {
 }
 
 function pickWeighted(): (typeof SYMBOLS)[0] {
-  const total = SYMBOLS.reduce((s, x) => s + x.weight, 0);
-  let r = Math.random() * total;
+  const total = SYMBOLS.reduce((sum, item) => sum + item.weight, 0);
+  let random = Math.random() * total;
 
-  for (const sym of SYMBOLS) {
-    r -= sym.weight;
+  for (const symbol of SYMBOLS) {
+    random -= symbol.weight;
 
-    if (r <= 0) {
-      return sym;
+    if (random <= 0) {
+      return symbol;
     }
   }
 
@@ -73,10 +73,7 @@ function getPrestigeMedal(prestige: number) {
   return "🏅";
 }
 
-function convertToPrestige(
-  balance: number,
-  prestige: number
-) {
+function convertToPrestige(balance: number, prestige: number) {
   if (balance < PRESTIGE_COST) {
     return {
       balance,
@@ -85,9 +82,7 @@ function convertToPrestige(
     };
   }
 
-  const gained = Math.floor(
-    balance / PRESTIGE_COST
-  );
+  const gained = Math.floor(balance / PRESTIGE_COST);
 
   return {
     balance: balance % PRESTIGE_COST,
@@ -113,32 +108,20 @@ export default function SlotsView() {
   ]);
 
   const [spinning, setSpinning] = useState(false);
-
   const [balance, setBalance] = useState(1000);
-
   const [prestige, setPrestige] = useState(0);
-
   const [bet, setBet] = useState(50);
 
-  const [lastWin, setLastWin] =
-    useState<number | null>(null);
+  const [lastWin, setLastWin] = useState<number | null>(null);
+  const [winMessage, setWinMessage] = useState<string | null>(null);
 
-  const [winMessage, setWinMessage] =
-    useState<string | null>(null);
-
-  const [history, setHistory] = useState<
-    HistoryItem[]
-  >([]);
-
+  const [history, setHistory] = useState<HistoryItem[]>([]);
   const [loading, setLoading] = useState(true);
 
   const [totalWon, setTotalWon] = useState(0);
-
   const [spins, setSpins] = useState(0);
 
-  const spinTimers = useRef<
-    ReturnType<typeof setInterval>[]
-  >([]);
+  const spinTimers = useRef<ReturnType<typeof setInterval>[]>([]);
 
   useEffect(() => {
     loadState();
@@ -152,9 +135,7 @@ export default function SlotsView() {
     try {
       const state = await fetchSlotsState();
 
-      const user = (
-        await supabase.auth.getUser()
-      ).data.user;
+      const user = (await supabase.auth.getUser()).data.user;
 
       if (!user) {
         setLoading(false);
@@ -166,14 +147,14 @@ export default function SlotsView() {
       if (state) {
         let loadedBalance = Number(state.balance) || 0;
 
-        // Получаем prestige из новой колонки.
-        const loadedPrestige = Number(
-          (state as any).prestige
-        ) || 0;
+        const loadedPrestige =
+          Number((state as any).prestige) || 0;
 
-        // Если у человека уже был огромный баланс
-        // до появления системы престижа —
-        // автоматически переводим его в престиж.
+        /*
+         * Если в базе ещё остался старый баланс
+         * больше 1 миллиарда — автоматически
+         * переводим его в престиж.
+         */
         const converted = convertToPrestige(
           loadedBalance,
           loadedPrestige
@@ -182,42 +163,46 @@ export default function SlotsView() {
         loadedBalance = converted.balance;
 
         setBalance(loadedBalance);
-
         setPrestige(converted.prestige);
 
+        const savedBet = Number(state.bet) || 50;
+
         setBet(
-          Math.min(
-            loadedBalance,
-            Math.max(
-              10,
-              Number(state.bet) || 50
-            )
-          )
+          loadedBalance >= 10
+            ? Math.min(
+                loadedBalance,
+                Math.max(10, savedBet)
+              )
+            : 10
         );
 
         setHistory(state.history || []);
 
-        // Если произошла конвертация старого
-        // огромного баланса — сохраняем её.
+        /*
+         * Если обнаружили старый огромный баланс,
+         * сразу сохраняем новую структуру.
+         */
         if (converted.gained > 0) {
-          await supabase
+          const { error } = await supabase
             .from("slots_state")
             .update({
               balance: converted.balance,
               prestige: converted.prestige,
             })
             .eq("user_id", user.id);
+
+          if (error) {
+            console.error(
+              "Ошибка сохранения престижа:",
+              error
+            );
+          }
         }
       }
 
       if (profile) {
-        setTotalWon(
-          Number(profile.total_won) || 0
-        );
-
-        setSpins(
-          Number(profile.spins) || 0
-        );
+        setTotalWon(Number(profile.total_won) || 0);
+        setSpins(Number(profile.spins) || 0);
       }
     } catch (error) {
       console.error(
@@ -237,20 +222,23 @@ export default function SlotsView() {
     newPrestige: number
   ) {
     try {
-      const user = (
-        await supabase.auth.getUser()
-      ).data.user;
+      const user = (await supabase.auth.getUser()).data.user;
 
       if (!user) return;
 
       /*
-       * Сохраняем всё сразу.
+       * Баланс всегда хранится отдельно от престижа.
        *
-       * Важно:
-       * balance всегда меньше 1 млрд,
-       * а prestige хранится отдельно.
+       * Например:
+       *
+       * 2 100 351 430
+       *
+       * превращается в:
+       *
+       * balance  = 100 351 430
+       * prestige = 2
        */
-      await supabase
+      const { error: slotsError } = await supabase
         .from("slots_state")
         .upsert(
           {
@@ -265,35 +253,42 @@ export default function SlotsView() {
           }
         );
 
+      if (slotsError) {
+        console.error(
+          "Ошибка сохранения slots_state:",
+          slotsError
+        );
+
+        return;
+      }
+
       const newSpins = spins + 1;
-      const newTotalWon =
-        totalWon + won;
+      const newTotalWon = totalWon + won;
 
       setSpins(newSpins);
       setTotalWon(newTotalWon);
 
       /*
-       * max_balance больше не используется
-       * как ограничитель баланса.
+       * ВАЖНО:
+       * Старый max_balance больше НЕ используется
+       * как рекорд для рейтинга.
        *
-       * Но оставляем статистику профиля,
-       * чтобы не ломать существующую систему.
+       * Сохраняем туда текущий нормализованный баланс,
+       * чтобы старые миллиарды не возвращались.
        */
-      const profile = await fetchProfile(user.id);
+      const { error: profileError } =
+        await updateProfileStats(
+          newBalance,
+          newTotalWon,
+          newSpins
+        );
 
-      const currentMax =
-        Number(profile?.max_balance) || 0;
-
-      const newMax = Math.max(
-        currentMax,
-        newBalance
-      );
-
-      await updateProfileStats(
-        newMax,
-        newTotalWon,
-        newSpins
-      );
+      if (profileError) {
+        console.error(
+          "Ошибка обновления статистики:",
+          profileError
+        );
+      }
     } catch (error) {
       console.error(
         "Ошибка сохранения слотов:",
@@ -323,8 +318,8 @@ export default function SlotsView() {
 
     for (let i = 0; i < 3; i++) {
       const interval = setInterval(() => {
-        setReels((prev) => {
-          const copy = [...prev];
+        setReels((previous) => {
+          const copy = [...previous];
 
           copy[i] = {
             symbol: pickWeighted(),
@@ -337,179 +332,134 @@ export default function SlotsView() {
 
       spinTimers.current.push(interval);
 
-      setTimeout(
-        () => {
-          clearInterval(interval);
+      setTimeout(() => {
+        clearInterval(interval);
 
-          spinTimers.current =
-            spinTimers.current.filter(
-              (t) => t !== interval
+        spinTimers.current =
+          spinTimers.current.filter(
+            (timer) => timer !== interval
+          );
+
+        setReels((previous) => {
+          const copy = [...previous];
+
+          copy[i] = {
+            symbol: finalSymbols[i],
+            spinning: false,
+          };
+
+          return copy;
+        });
+
+        if (i === 2) {
+          setTimeout(() => {
+            setSpinning(false);
+
+            const all = finalSymbols;
+
+            const allMatch =
+              all[0].emoji === all[1].emoji &&
+              all[1].emoji === all[2].emoji;
+
+            const twoMatch =
+              all[0].emoji === all[1].emoji ||
+              all[1].emoji === all[2].emoji ||
+              all[0].emoji === all[2].emoji;
+
+            let win = 0;
+            let message: string | null = null;
+
+            if (allMatch) {
+              win =
+                bet *
+                (PAYOUTS[all[0].emoji] ?? 5);
+
+              if (all[0].emoji === "💰") {
+                message =
+                  "ДЖЕКПОТ! Стипендия получена!";
+              } else if (all[0].emoji === "🔥") {
+                message = "Огненный выигрыш!";
+              } else {
+                message = `Три в ряд! +${win}`;
+              }
+            } else if (twoMatch) {
+              const matchSymbol =
+                all[0].emoji === all[1].emoji
+                  ? all[0]
+                  : all[1].emoji === all[2].emoji
+                    ? all[1]
+                    : all[0];
+
+              win = Math.floor(
+                bet *
+                  (PAYOUTS[matchSymbol.emoji] ?? 5) *
+                  0.3
+              );
+
+              message = `Пара! +${win}`;
+            }
+
+            /*
+             * Сначала считаем обычный результат.
+             */
+            const rawBalance =
+              balance - bet + win;
+
+            /*
+             * Затем проверяем престиж.
+             */
+            const converted = convertToPrestige(
+              rawBalance,
+              prestige
             );
 
-          setReels((prev) => {
-            const copy = [...prev];
+            const newBalance = converted.balance;
+            const newPrestige = converted.prestige;
 
-            copy[i] = {
-              symbol: finalSymbols[i],
-              spinning: false,
-            };
+            setBalance(newBalance);
+            setPrestige(newPrestige);
 
-            return copy;
-          });
+            if (win > 0) {
+              setLastWin(win);
+              setWinMessage(message);
+            } else {
+              setLastWin(0);
+            }
 
-          if (i === 2) {
-            setTimeout(() => {
-              setSpinning(false);
-
-              const all = finalSymbols;
-
-              const allMatch =
-                all[0].emoji ===
-                  all[1].emoji &&
-                all[1].emoji ===
-                  all[2].emoji;
-
-              const twoMatch =
-                all[0].emoji ===
-                  all[1].emoji ||
-                all[1].emoji ===
-                  all[2].emoji ||
-                all[0].emoji ===
-                  all[2].emoji;
-
-              let win = 0;
-              let msg: string | null = null;
-
-              if (allMatch) {
-                win =
-                  bet *
-                  (PAYOUTS[
-                    all[0].emoji
-                  ] ?? 5);
-
-                if (
-                  all[0].emoji ===
-                  "💰"
-                ) {
-                  msg =
-                    "ДЖЕКПОТ! Стипендия получена!";
-                } else if (
-                  all[0].emoji ===
-                  "🔥"
-                ) {
-                  msg =
-                    "Огненный выигрыш!";
-                } else {
-                  msg =
-                    `Три в ряд! +${win}`;
-                }
-              } else if (twoMatch) {
-                const matchSym =
-                  all[0].emoji ===
-                  all[1].emoji
-                    ? all[0]
-                    : all[1].emoji ===
-                        all[2].emoji
-                      ? all[1]
-                      : all[0];
-
-                win = Math.floor(
-                  bet *
-                    (PAYOUTS[
-                      matchSym.emoji
-                    ] ?? 5) *
-                    0.3
-                );
-
-                msg =
-                  `Пара! +${win}`;
-              }
-
-              /*
-               * Сначала рассчитываем обычный
-               * результат спина.
-               */
-              const rawBalance =
-                balance -
-                bet +
-                win;
-
-              /*
-               * Проверяем миллиард.
-               *
-               * Например:
-               *
-               * 950 000 000
-               * + 100 000 000
-               *
-               * = prestige +1
-               * = balance 50 000 000
-               */
-              const converted =
-                convertToPrestige(
-                  rawBalance,
-                  prestige
-                );
-
-              const newBalance =
-                converted.balance;
-
-              const newPrestige =
-                converted.prestige;
-
-              setBalance(newBalance);
-
-              setPrestige(newPrestige);
-
-              /*
-               * Сообщение о выигрыше.
-               */
-              if (win > 0) {
-                setLastWin(win);
-                setWinMessage(msg);
-              } else {
-                setLastWin(0);
-              }
-
-              /*
-               * Если получен престиж —
-               * показываем отдельное сообщение.
-               */
-              if (converted.gained > 0) {
-                setWinMessage(
-                  converted.gained === 1
-                    ? "🏅 НОВЫЙ ПРЕСТИЖ! +1"
-                    : `🏅 НОВЫЙ ПРЕСТИЖ! +${converted.gained}`
-                );
-              }
-
-              const newHistory = [
-                {
-                  win,
-                  symbols:
-                    all
-                      .map(
-                        (s) => s.emoji
-                      )
-                      .join(""),
-                },
-                ...history.slice(0, 9),
-              ];
-
-              setHistory(newHistory);
-
-              saveState(
-                newBalance,
-                bet,
-                newHistory,
-                win,
-                newPrestige
+            /*
+             * Если игрок перешёл миллиард —
+             * показываем сообщение о престиже.
+             */
+            if (converted.gained > 0) {
+              setWinMessage(
+                converted.gained === 1
+                  ? "🏅 НОВЫЙ ПРЕСТИЖ! +1"
+                  : `🏅 НОВЫЙ ПРЕСТИЖ! +${converted.gained}`
               );
-            }, 150);
-          }
-        },
-        600 + i * 400
-      );
+            }
+
+            const newHistory: HistoryItem[] = [
+              {
+                win,
+                symbols: all
+                  .map((symbol) => symbol.emoji)
+                  .join(""),
+              },
+              ...history.slice(0, 9),
+            ];
+
+            setHistory(newHistory);
+
+            saveState(
+              newBalance,
+              bet,
+              newHistory,
+              win,
+              newPrestige
+            );
+          }, 150);
+        }
+      }, 600 + i * 400);
     }
   }, [
     spinning,
@@ -522,9 +472,9 @@ export default function SlotsView() {
   ]);
 
   const handleBetChange = (
-    e: React.ChangeEvent<HTMLInputElement>
+    event: React.ChangeEvent<HTMLInputElement>
   ) => {
-    const value = e.target.value;
+    const value = event.target.value;
 
     if (value === "") {
       setBet(0);
@@ -540,10 +490,7 @@ export default function SlotsView() {
     setBet(
       Math.min(
         balance,
-        Math.max(
-          10,
-          Math.floor(number)
-        )
+        Math.max(10, Math.floor(number))
       )
     );
   };
@@ -554,11 +501,13 @@ export default function SlotsView() {
     bet <= balance &&
     balance >= bet;
 
-  const progress =
-    Math.min(
-      100,
-      (balance / PRESTIGE_COST) * 100
-    );
+  const progress = Math.min(
+    100,
+    (balance / PRESTIGE_COST) * 100
+  );
+
+  const remainingToPrestige =
+    PRESTIGE_COST - balance;
 
   if (loading) {
     return (
@@ -582,9 +531,7 @@ export default function SlotsView() {
             </p>
 
             <p className="text-3xl font-bold mt-0.5">
-              {balance.toLocaleString(
-                "ru-RU"
-              )} ₽
+              {balance.toLocaleString("ru-RU")} ₽
             </p>
           </div>
 
@@ -602,9 +549,7 @@ export default function SlotsView() {
             <div className="flex items-center gap-2">
 
               <div className="w-9 h-9 rounded-lg bg-white/15 flex items-center justify-center text-xl">
-                {getPrestigeMedal(
-                  prestige
-                )}
+                {getPrestigeMedal(prestige)}
               </div>
 
               <div>
@@ -613,9 +558,7 @@ export default function SlotsView() {
                 </p>
 
                 <p className="text-base font-bold">
-                  ×{prestige.toLocaleString(
-                    "ru-RU"
-                  )}
+                  ×{prestige.toLocaleString("ru-RU")}
                 </p>
               </div>
 
@@ -625,7 +568,7 @@ export default function SlotsView() {
 
           </div>
 
-          {/* Прогресс */}
+          {/* ПРОГРЕСС */}
           <div className="mt-3">
 
             <div className="flex items-center justify-between mb-1">
@@ -652,12 +595,7 @@ export default function SlotsView() {
             </div>
 
             <p className="text-[10px] text-teal-100 mt-1.5 text-right">
-              {(
-                PRESTIGE_COST -
-                balance
-              ).toLocaleString(
-                "ru-RU"
-              )} ₽
+              {remainingToPrestige.toLocaleString("ru-RU")} ₽
             </p>
 
           </div>
@@ -666,26 +604,22 @@ export default function SlotsView() {
 
         <div className="flex gap-3 mt-3">
 
-          {lastWin !== null &&
-            lastWin > 0 && (
-              <div className="bg-white/20 rounded-lg px-3 py-1.5 inline-flex items-center gap-1.5">
+          {lastWin !== null && lastWin > 0 && (
+            <div className="bg-white/20 rounded-lg px-3 py-1.5 inline-flex items-center gap-1.5">
 
-                <Sparkles className="w-4 h-4 text-yellow-300" />
+              <Sparkles className="w-4 h-4 text-yellow-300" />
 
-                <span className="text-sm font-medium">
-                  +{lastWin} ₽
-                </span>
+              <span className="text-sm font-medium">
+                +{lastWin} ₽
+              </span>
 
-              </div>
-            )}
+            </div>
+          )}
 
           <div className="bg-white/10 rounded-lg px-3 py-1.5 inline-flex items-center gap-1.5">
 
             <span className="text-xs text-teal-100">
-              Медаль:{" "}
-              {getPrestigeMedal(
-                prestige
-              )}
+              Медаль: {getPrestigeMedal(prestige)}
             </span>
 
           </div>
@@ -701,9 +635,9 @@ export default function SlotsView() {
 
           <div className="flex items-center justify-center gap-2">
 
-            {reels.map((reel, i) => (
+            {reels.map((reel, index) => (
               <div
-                key={i}
+                key={index}
                 className={`flex-1 aspect-square max-w-[80px] bg-white rounded-xl flex items-center justify-center text-4xl transition-all ${
                   reel.spinning
                     ? "scale-90 opacity-70"
@@ -728,11 +662,9 @@ export default function SlotsView() {
 
         {winMessage && (
           <div className="text-center mb-3">
-
             <p className="text-sm font-bold text-teal-600 animate-pulse">
               {winMessage}
             </p>
-
           </div>
         )}
 
@@ -747,11 +679,8 @@ export default function SlotsView() {
 
             <button
               onClick={() =>
-                setBet((b) =>
-                  Math.max(
-                    10,
-                    b - 10
-                  )
+                setBet((current) =>
+                  Math.max(10, current - 10)
                 )
               }
               disabled={spinning}
@@ -766,14 +695,8 @@ export default function SlotsView() {
               min="10"
               max={balance}
               step="1"
-              value={
-                bet === 0
-                  ? ""
-                  : bet
-              }
-              onChange={
-                handleBetChange
-              }
+              value={bet === 0 ? "" : bet}
+              onChange={handleBetChange}
               disabled={spinning}
               aria-label="Сумма ставки"
               className="text-sm font-bold text-gray-900 w-16 h-8 text-center bg-gray-50 rounded-lg px-1 outline-none border border-transparent focus:border-teal-500 focus:ring-2 focus:ring-teal-100 disabled:opacity-40"
@@ -785,13 +708,10 @@ export default function SlotsView() {
 
             <button
               onClick={() =>
-                setBet((b) =>
+                setBet((current) =>
                   Math.min(
                     balance,
-                    Math.max(
-                      10,
-                      b + 10
-                    )
+                    Math.max(10, current + 10)
                   )
                 )
               }
@@ -817,34 +737,25 @@ export default function SlotsView() {
 
           <Dices
             className={`w-5 h-5 ${
-              spinning
-                ? "animate-spin"
-                : ""
+              spinning ? "animate-spin" : ""
             }`}
           />
 
-          {spinning
-            ? "Крутим..."
-            : "Крутить"}
+          {spinning ? "Крутим..." : "Крутить"}
 
         </button>
 
-        {balance < bet &&
-          !spinning && (
-            <p className="text-center text-xs text-red-500 mt-2">
-              Не хватает баланса
-              на ставку
-            </p>
-          )}
+        {balance < bet && !spinning && (
+          <p className="text-center text-xs text-red-500 mt-2">
+            Не хватает баланса на ставку
+          </p>
+        )}
 
-        {bet > 0 &&
-          bet < 10 &&
-          !spinning && (
-            <p className="text-center text-xs text-red-500 mt-2">
-              Минимальная ставка —
-              10 ₽
-            </p>
-          )}
+        {bet > 0 && bet < 10 && !spinning && (
+          <p className="text-center text-xs text-red-500 mt-2">
+            Минимальная ставка — 10 ₽
+          </p>
+        )}
 
       </div>
 
@@ -857,21 +768,18 @@ export default function SlotsView() {
 
         <div className="grid grid-cols-3 gap-2">
 
-          {SYMBOLS.map((sym) => (
+          {SYMBOLS.map((symbol) => (
             <div
-              key={sym.emoji}
+              key={symbol.emoji}
               className="flex flex-col items-center bg-gray-50 rounded-lg py-2"
             >
 
               <span className="text-2xl mb-1">
-                {sym.emoji}
+                {symbol.emoji}
               </span>
 
               <span className="text-xs font-bold text-gray-700">
-                ×
-                {PAYOUTS[
-                  sym.emoji
-                ] ?? 5}
+                ×{PAYOUTS[symbol.emoji] ?? 5}
               </span>
 
             </div>
@@ -895,32 +803,30 @@ export default function SlotsView() {
 
           <div className="space-y-1.5">
 
-            {history.map(
-              (h, i) => (
-                <div
-                  key={i}
-                  className="flex items-center justify-between text-sm"
+            {history.map((item, index) => (
+              <div
+                key={index}
+                className="flex items-center justify-between text-sm"
+              >
+
+                <span className="text-lg">
+                  {item.symbols}
+                </span>
+
+                <span
+                  className={
+                    item.win > 0
+                      ? "text-teal-600 font-medium"
+                      : "text-gray-400"
+                  }
                 >
+                  {item.win > 0
+                    ? `+${item.win} ₽`
+                    : "—"}
+                </span>
 
-                  <span className="text-lg">
-                    {h.symbols}
-                  </span>
-
-                  <span
-                    className={
-                      h.win > 0
-                        ? "text-teal-600 font-medium"
-                        : "text-gray-400"
-                    }
-                  >
-                    {h.win > 0
-                      ? `+${h.win} ₽`
-                      : "—"}
-                  </span>
-
-                </div>
-              )
-            )}
+              </div>
+            ))}
 
           </div>
 
@@ -933,14 +839,9 @@ export default function SlotsView() {
           onClick={async () => {
             const newBalance = 1000;
 
-            setBalance(
-              newBalance
-            );
-
+            setBalance(newBalance);
             setBet(50);
-
             setLastWin(null);
-
             setWinMessage(null);
 
             const user = (
@@ -948,22 +849,27 @@ export default function SlotsView() {
             ).data.user;
 
             if (user) {
-              await supabase
+              const { error } = await supabase
                 .from("slots_state")
                 .upsert(
                   {
                     user_id: user.id,
-                    balance:
-                      newBalance,
+                    balance: newBalance,
                     bet: 50,
                     history,
                     prestige,
                   },
                   {
-                    onConflict:
-                      "user_id",
+                    onConflict: "user_id",
                   }
                 );
+
+              if (error) {
+                console.error(
+                  "Ошибка пополнения баланса:",
+                  error
+                );
+              }
             }
           }}
           className="w-full flex items-center justify-center gap-2 py-2.5 px-4 bg-gray-100 text-gray-500 rounded-xl font-medium text-sm hover:bg-gray-200 transition-colors"
