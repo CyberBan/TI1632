@@ -5,10 +5,12 @@ import {
   Medal,
   Loader2,
 } from "lucide-react";
+
 import {
   fetchReactions,
   toggleReaction,
 } from "@/lib/api";
+
 import type { SlotReaction } from "@/lib/types";
 import { supabase } from "@/lib/supabase";
 
@@ -27,10 +29,22 @@ interface RatingProfile {
   balance: number;
   prestige: number;
   spins: number;
-  max_balance: number;
 }
 
-function getPrestigeMedal(prestige: number) {
+/*
+  Значок престижа.
+
+  0  → 🏅
+  1+ → 🥉
+  5+ → 🥈
+  10+ → 🥇
+  25+ → 🏆
+  50+ → 🔥
+  100+ → 💎
+  500+ → 👑
+  1000+ → ♾️
+*/
+function getPrestigeMedal(prestige: number): string {
   if (prestige >= 1000) return "♾️";
   if (prestige >= 500) return "👑";
   if (prestige >= 100) return "💎";
@@ -46,23 +60,25 @@ function getPrestigeMedal(prestige: number) {
 export default function RatingView() {
   const [profiles, setProfiles] = useState<RatingProfile[]>([]);
   const [reactions, setReactions] = useState<SlotReaction[]>([]);
+
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
   const [currentUserId, setCurrentUserId] =
     useState<string | null>(null);
 
-  const load = useCallback(async () => {
+  /*
+    Загружаем рейтинг напрямую из Supabase.
+
+    ВАЖНО:
+    здесь используется get_slots_rating(),
+    поэтому старый profiles.max_balance
+    вообще не используется.
+  */
+  const loadRating = useCallback(async () => {
     try {
-      setLoading(true);
       setError(null);
 
-      /*
-       * Получаем рейтинг напрямую из новой
-       * PostgreSQL-функции get_slots_rating().
-       *
-       * Теперь рейтинг НЕ использует старый
-       * profiles.max_balance.
-       */
       const { data, error: ratingError } =
         await supabase.rpc("get_slots_rating");
 
@@ -70,30 +86,72 @@ export default function RatingView() {
         throw ratingError;
       }
 
-      const [reactionData] =
-        await Promise.all([
-          fetchReactions(),
-        ]);
-
-      const normalized: RatingProfile[] =
-        (data || []).map((item: any) => ({
+      const rating: RatingProfile[] = (data ?? []).map(
+        (item: {
+          user_id: string;
+          display_name: string | null;
+          avatar_emoji: string | null;
+          balance: number | string | null;
+          prestige: number | string | null;
+          spins: number | string | null;
+        }) => ({
           user_id: item.user_id,
+
           display_name:
-            item.display_name || "Без имени",
+            item.display_name?.trim() || "Без имени",
+
           avatar_emoji:
             item.avatar_emoji || "🎓",
-          balance:
-            Number(item.balance) || 0,
-          prestige:
-            Number(item.prestige) || 0,
-          spins:
-            Number(item.spins) || 0,
-          max_balance:
-            Number(item.max_balance) || 0,
-        }));
 
-      setProfiles(normalized);
-      setReactions(reactionData);
+          balance:
+            Number(item.balance ?? 0),
+
+          prestige:
+            Number(item.prestige ?? 0),
+
+          spins:
+            Number(item.spins ?? 0),
+        })
+      );
+
+      /*
+        Дополнительная сортировка на клиенте.
+
+        Приоритет:
+        1. prestige
+        2. balance
+        3. spins
+      */
+      rating.sort((a, b) => {
+        if (b.prestige !== a.prestige) {
+          return b.prestige - a.prestige;
+        }
+
+        if (b.balance !== a.balance) {
+          return b.balance - a.balance;
+        }
+
+        return b.spins - a.spins;
+      });
+
+      setProfiles(rating);
+
+      /*
+        Реакции отдельно.
+        Если реакции не загрузятся, сам рейтинг
+        всё равно останется рабочим.
+      */
+      try {
+        const reactionData = await fetchReactions();
+        setReactions(reactionData);
+      } catch (reactionError) {
+        console.error(
+          "Ошибка загрузки реакций:",
+          reactionError
+        );
+
+        setReactions([]);
+      }
     } catch (e) {
       console.error(
         "Ошибка загрузки рейтинга:",
@@ -110,34 +168,41 @@ export default function RatingView() {
     }
   }, []);
 
+  /*
+    Получаем текущего пользователя.
+  */
   useEffect(() => {
-    load();
+    supabase.auth.getUser().then(({ data }) => {
+      setCurrentUserId(
+        data.user?.id ?? null
+      );
+    });
 
-    supabase.auth
-      .getUser()
-      .then(({ data }) => {
-        setCurrentUserId(
-          data.user?.id ?? null
-        );
-      });
+    loadRating();
 
     /*
-     * Автоматически обновляем рейтинг
-     * каждые 10 секунд.
-     */
+      Автоматически обновляем рейтинг
+      каждые 10 секунд.
+    */
     const interval = window.setInterval(() => {
-      load();
+      loadRating();
     }, 10000);
 
     return () => {
       window.clearInterval(interval);
     };
-  }, [load]);
+  }, [loadRating]);
 
+  /*
+    Реакция на игрока.
+  */
   async function handleReact(
     targetUserId: string,
     emoji: string
   ) {
+    /*
+      Нельзя реагировать на самого себя.
+    */
     if (targetUserId === currentUserId) {
       return;
     }
@@ -148,20 +213,23 @@ export default function RatingView() {
         emoji
       );
 
-      await load();
+      await loadRating();
     } catch (e) {
       setError(
         e instanceof Error
           ? e.message
-          : "Ошибка"
+          : "Ошибка реакции"
       );
     }
   }
 
+  /*
+    Количество конкретной реакции.
+  */
   function getReactionCount(
     targetUserId: string,
     emoji: string
-  ) {
+  ): number {
     return reactions.filter(
       (reaction) =>
         reaction.target_user_id ===
@@ -170,10 +238,14 @@ export default function RatingView() {
     ).length;
   }
 
+  /*
+    Проверяем, поставил ли текущий пользователь
+    эту реакцию.
+  */
   function hasReacted(
     targetUserId: string,
     emoji: string
-  ) {
+  ): boolean {
     return reactions.some(
       (reaction) =>
         reaction.target_user_id ===
@@ -184,6 +256,22 @@ export default function RatingView() {
     );
   }
 
+  /*
+    Форматирование денег.
+
+    Например:
+
+    12618475
+    ↓
+    12 618 475
+  */
+  function formatMoney(value: number): string {
+    return value.toLocaleString("ru-RU");
+  }
+
+  /*
+    Загрузка.
+  */
   if (loading) {
     return (
       <div className="flex items-center justify-center py-20">
@@ -192,6 +280,9 @@ export default function RatingView() {
     );
   }
 
+  /*
+    Ошибка.
+  */
   if (error) {
     return (
       <div className="space-y-3">
@@ -200,7 +291,10 @@ export default function RatingView() {
         </div>
 
         <button
-          onClick={load}
+          onClick={() => {
+            setLoading(true);
+            loadRating();
+          }}
           className="w-full py-2.5 rounded-xl bg-gray-100 text-gray-700 text-sm font-medium"
         >
           Повторить
@@ -212,17 +306,16 @@ export default function RatingView() {
   return (
     <div className="space-y-4">
 
-      {/* ЗАГОЛОВОК */}
+      {/* Заголовок */}
       <div className="flex items-center gap-2 mb-2">
-
         <Trophy className="w-5 h-5 text-amber-500" />
 
         <h3 className="text-sm font-bold text-gray-800">
           Рейтинг богачей
         </h3>
-
       </div>
 
+      {/* Если игроков нет */}
       {profiles.length === 0 ? (
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-8 text-center">
 
@@ -234,13 +327,14 @@ export default function RatingView() {
 
         </div>
       ) : (
+
         <div className="space-y-2.5">
 
           {profiles.map((profile, index) => {
             const isTop3 = index < 3;
+
             const isMe =
-              profile.user_id ===
-              currentUserId;
+              profile.user_id === currentUserId;
 
             const prestigeMedal =
               getPrestigeMedal(
@@ -257,10 +351,10 @@ export default function RatingView() {
                 }`}
               >
 
-                {/* ОСНОВНАЯ ИНФОРМАЦИЯ */}
+                {/* Основная информация */}
                 <div className="flex items-center gap-3">
 
-                  {/* МЕСТО */}
+                  {/* Место */}
                   <div className="flex-shrink-0 w-8 text-center">
 
                     {index === 0 ? (
@@ -277,16 +371,15 @@ export default function RatingView() {
 
                   </div>
 
-                  {/* АВАТАР */}
+                  {/* Аватар */}
                   <div className="w-10 h-10 rounded-xl bg-gray-50 flex items-center justify-center text-xl flex-shrink-0">
                     {profile.avatar_emoji}
                   </div>
 
-                  {/* ИМЯ + ПРЕСТИЖ */}
+                  {/* Имя + престиж + спины */}
                   <div className="flex-1 min-w-0">
 
                     <p className="text-sm font-semibold text-gray-900 truncate">
-
                       {profile.display_name}
 
                       {isMe && (
@@ -294,9 +387,9 @@ export default function RatingView() {
                           (ты)
                         </span>
                       )}
-
                     </p>
 
+                    {/* Престиж */}
                     <div className="flex items-center gap-1.5 mt-0.5">
 
                       <span className="text-sm">
@@ -312,6 +405,7 @@ export default function RatingView() {
 
                     </div>
 
+                    {/* Спины */}
                     <p className="text-xs text-gray-400 mt-0.5">
                       {profile.spins.toLocaleString(
                         "ru-RU"
@@ -321,12 +415,12 @@ export default function RatingView() {
 
                   </div>
 
-                  {/* ТЕКУЩИЙ БАЛАНС */}
+                  {/* Текущий баланс */}
                   <div className="text-right flex-shrink-0">
 
                     <p className="text-lg font-bold text-teal-600">
-                      {profile.balance.toLocaleString(
-                        "ru-RU"
+                      {formatMoney(
+                        profile.balance
                       )}
                     </p>
 
@@ -338,11 +432,12 @@ export default function RatingView() {
 
                 </div>
 
-                {/* РЕАКЦИИ */}
+                {/* Реакции */}
                 <div className="flex gap-1.5 mt-3 pt-3 border-t border-gray-50">
 
                   {REACTION_EMOJIS.map(
                     (emoji) => {
+
                       const count =
                         getReactionCount(
                           profile.user_id,
@@ -403,10 +498,10 @@ export default function RatingView() {
         </div>
       )}
 
+      {/* Подсказка */}
       <p className="text-xs text-gray-400 text-center px-4">
-        Рейтинг сортируется по престижу, затем
-        по текущему балансу. Жми на эмодзи,
-        чтобы отреагировать!
+        Рейтинг сортируется по престижу,
+        затем по текущему балансу и спинам.
       </p>
 
     </div>
