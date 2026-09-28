@@ -54,7 +54,9 @@ export default function App() {
 
   useEffect(() => {
     if (session?.user?.id) {
-      fetchProfile(session.user.id).then(setProfile).catch(() => setProfile(null));
+      fetchProfile(session.user.id)
+        .then(setProfile)
+        .catch(() => setProfile(null));
     } else {
       setProfile(null);
     }
@@ -62,7 +64,13 @@ export default function App() {
 
   if (authLoading) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+      <div
+        className="min-h-screen bg-gray-50 flex items-center justify-center"
+        style={{
+          paddingTop: "env(safe-area-inset-top)",
+          paddingBottom: "env(safe-area-inset-bottom)",
+        }}
+      >
         <GraduationCap className="w-8 h-8 text-teal-600 animate-pulse" />
       </div>
     );
@@ -74,14 +82,25 @@ export default function App() {
 
   if (profile?.banned) {
     return (
-      <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center px-4">
+      <div
+        className="min-h-screen bg-gray-50 flex flex-col items-center justify-center px-4"
+        style={{
+          paddingTop: "env(safe-area-inset-top)",
+          paddingBottom: "env(safe-area-inset-bottom)",
+        }}
+      >
         <div className="w-16 h-16 rounded-2xl bg-red-100 flex items-center justify-center mb-4">
           <Ban className="w-8 h-8 text-red-500" />
         </div>
-        <h1 className="text-xl font-bold text-gray-900 mb-2">Аккаунт заблокирован</h1>
+
+        <h1 className="text-xl font-bold text-gray-900 mb-2">
+          Аккаунт заблокирован
+        </h1>
+
         <p className="text-sm text-gray-400 text-center mb-6">
           Обратитесь к администратору, если считаете, что это ошибка.
         </p>
+
         <button
           onClick={async () => await supabase.auth.signOut()}
           className="px-6 py-2.5 bg-gray-100 text-gray-600 rounded-xl font-medium text-sm hover:bg-gray-200 transition-colors"
@@ -99,17 +118,29 @@ export default function App() {
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col">
       {/* Header */}
-      <header className="bg-white border-b border-gray-100 sticky top-0 z-10">
-        <div className="max-w-md mx-auto px-4 py-3 flex items-center gap-3">
+      <header
+        className="bg-white border-b border-gray-100 sticky top-0 z-10"
+        style={{
+          paddingTop: "env(safe-area-inset-top)",
+        }}
+      >
+        <div className="max-w-md mx-auto px-4 pb-3 flex items-center gap-3">
           <div className="w-9 h-9 rounded-xl bg-teal-600 flex items-center justify-center flex-shrink-0">
             <GraduationCap className="w-5 h-5 text-white" />
           </div>
-          <div className="flex-1">
-            <h1 className="font-bold text-gray-900 text-base leading-tight">Группа 163</h1>
-            <p className="text-xs text-gray-400 leading-tight">
-              {profile ? `${profile.avatar_emoji} ${profile.display_name}` : session.user.email}
+
+          <div className="flex-1 min-w-0">
+            <h1 className="font-bold text-gray-900 text-base leading-tight">
+              Группа 163
+            </h1>
+
+            <p className="text-xs text-gray-400 leading-tight truncate">
+              {profile
+                ? `${profile.avatar_emoji} ${profile.display_name}`
+                : session.user.email}
             </p>
           </div>
+
           <button
             onClick={handleSignOut}
             className="p-2 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 transition-colors"
@@ -145,6 +176,7 @@ export default function App() {
                 <Flame className="w-4 h-4" />
                 Свечка
               </button>
+
               <button
                 onClick={() => setActivityMode("slots")}
                 className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 px-2 rounded-xl font-medium text-xs transition-all ${
@@ -156,6 +188,7 @@ export default function App() {
                 <Dices className="w-4 h-4" />
                 Слоты
               </button>
+
               <button
                 onClick={() => setActivityMode("rating")}
                 className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 px-2 rounded-xl font-medium text-xs transition-all ${
@@ -181,49 +214,68 @@ export default function App() {
       </main>
 
       {/* Bottom navigation */}
-      <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-100 z-20">
+      <nav
+        className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-100 z-20"
+        style={{
+          paddingBottom: "env(safe-area-inset-bottom)",
+        }}
+      >
         <div className="max-w-md mx-auto flex">
           <button
             onClick={() => setActiveTab("schedule")}
             className={`flex-1 flex flex-col items-center gap-1 py-3 transition-colors ${
-              activeTab === "schedule" ? "text-teal-600" : "text-gray-400"
+              activeTab === "schedule"
+                ? "text-teal-600"
+                : "text-gray-400"
             }`}
           >
             <CalendarDays className="w-5 h-5" />
             <span className="text-xs font-medium">Расписание</span>
           </button>
+
           <button
             onClick={() => setActiveTab("homework")}
             className={`flex-1 flex flex-col items-center gap-1 py-3 transition-colors ${
-              activeTab === "homework" ? "text-teal-600" : "text-gray-400"
+              activeTab === "homework"
+                ? "text-teal-600"
+                : "text-gray-400"
             }`}
           >
             <BookOpen className="w-5 h-5" />
             <span className="text-xs font-medium">Домашка</span>
           </button>
+
           <button
             onClick={() => setActiveTab("timer")}
             className={`flex-1 flex flex-col items-center gap-1 py-3 transition-colors ${
-              activeTab === "timer" ? "text-teal-600" : "text-gray-400"
+              activeTab === "timer"
+                ? "text-teal-600"
+                : "text-gray-400"
             }`}
           >
             <Timer className="w-5 h-5" />
             <span className="text-xs font-medium">Таймер</span>
           </button>
+
           <button
             onClick={() => setActiveTab("activity")}
             className={`flex-1 flex flex-col items-center gap-1 py-3 transition-colors ${
-              activeTab === "activity" ? "text-teal-600" : "text-gray-400"
+              activeTab === "activity"
+                ? "text-teal-600"
+                : "text-gray-400"
             }`}
           >
             <Sparkles className="w-5 h-5" />
             <span className="text-xs font-medium">Активность</span>
           </button>
+
           {profile?.role === "admin" && (
             <button
               onClick={() => setActiveTab("admin")}
               className={`flex-1 flex flex-col items-center gap-1 py-3 transition-colors ${
-                activeTab === "admin" ? "text-teal-600" : "text-gray-400"
+                activeTab === "admin"
+                  ? "text-teal-600"
+                  : "text-gray-400"
               }`}
             >
               <Shield className="w-5 h-5" />
