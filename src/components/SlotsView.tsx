@@ -1,5 +1,12 @@
 import { useState, useRef, useEffect, useCallback } from "react";
-import { Dices, RotateCcw, Trophy, Sparkles, Loader2 } from "lucide-react";
+import {
+  Dices,
+  RotateCcw,
+  Trophy,
+  Sparkles,
+  Loader2,
+  Medal,
+} from "lucide-react";
 import {
   fetchSlotsState,
   upsertSlotsState,
@@ -26,9 +33,16 @@ const PAYOUTS: Record<string, number> = {
   "📚": 5,
 };
 
+const PRESTIGE_COST = 1_000_000_000;
+
 interface ReelState {
   symbol: (typeof SYMBOLS)[0];
   spinning: boolean;
+}
+
+interface HistoryItem {
+  win: number;
+  symbols: string;
 }
 
 function pickWeighted(): (typeof SYMBOLS)[0] {
@@ -37,33 +51,94 @@ function pickWeighted(): (typeof SYMBOLS)[0] {
 
   for (const sym of SYMBOLS) {
     r -= sym.weight;
-    if (r <= 0) return sym;
+
+    if (r <= 0) {
+      return sym;
+    }
   }
 
   return SYMBOLS[0];
 }
 
+function getPrestigeMedal(prestige: number) {
+  if (prestige >= 1000) return "♾️";
+  if (prestige >= 500) return "👑";
+  if (prestige >= 100) return "💎";
+  if (prestige >= 50) return "🔥";
+  if (prestige >= 25) return "🏆";
+  if (prestige >= 10) return "🥇";
+  if (prestige >= 5) return "🥈";
+  if (prestige >= 1) return "🥉";
+
+  return "🏅";
+}
+
+function convertToPrestige(
+  balance: number,
+  prestige: number
+) {
+  if (balance < PRESTIGE_COST) {
+    return {
+      balance,
+      prestige,
+      gained: 0,
+    };
+  }
+
+  const gained = Math.floor(
+    balance / PRESTIGE_COST
+  );
+
+  return {
+    balance: balance % PRESTIGE_COST,
+    prestige: prestige + gained,
+    gained,
+  };
+}
+
 export default function SlotsView() {
   const [reels, setReels] = useState<ReelState[]>([
-    { symbol: SYMBOLS[0], spinning: false },
-    { symbol: SYMBOLS[1], spinning: false },
-    { symbol: SYMBOLS[2], spinning: false },
+    {
+      symbol: SYMBOLS[0],
+      spinning: false,
+    },
+    {
+      symbol: SYMBOLS[1],
+      spinning: false,
+    },
+    {
+      symbol: SYMBOLS[2],
+      spinning: false,
+    },
   ]);
 
   const [spinning, setSpinning] = useState(false);
-  const [balance, setBalance] = useState(1000);
-  const [bet, setBet] = useState(50);
-  const [lastWin, setLastWin] = useState<number | null>(null);
-  const [winMessage, setWinMessage] = useState<string | null>(null);
-  const [history, setHistory] = useState<
-    { win: number; symbols: string }[]
-  >([]);
-  const [loading, setLoading] = useState(true);
-  const [totalWon, setTotalWon] = useState(0);
-  const [spins, setSpins] = useState(0);
-  const [maxBalance, setMaxBalance] = useState(1000);
 
-  const spinTimers = useRef<ReturnType<typeof setInterval>[]>([]);
+  const [balance, setBalance] = useState(1000);
+
+  const [prestige, setPrestige] = useState(0);
+
+  const [bet, setBet] = useState(50);
+
+  const [lastWin, setLastWin] =
+    useState<number | null>(null);
+
+  const [winMessage, setWinMessage] =
+    useState<string | null>(null);
+
+  const [history, setHistory] = useState<
+    HistoryItem[]
+  >([]);
+
+  const [loading, setLoading] = useState(true);
+
+  const [totalWon, setTotalWon] = useState(0);
+
+  const [spins, setSpins] = useState(0);
+
+  const spinTimers = useRef<
+    ReturnType<typeof setInterval>[]
+  >([]);
 
   useEffect(() => {
     loadState();
@@ -77,27 +152,78 @@ export default function SlotsView() {
     try {
       const state = await fetchSlotsState();
 
-      const profile = await fetchProfile(
-        (await supabase.auth.getUser()).data.user!.id
-      );
+      const user = (
+        await supabase.auth.getUser()
+      ).data.user;
+
+      if (!user) {
+        setLoading(false);
+        return;
+      }
+
+      const profile = await fetchProfile(user.id);
 
       if (state) {
-        setBalance(state.balance);
-        setBet(Math.min(state.balance, Math.max(10, state.bet)));
+        let loadedBalance = Number(state.balance) || 0;
+
+        // Получаем prestige из новой колонки.
+        const loadedPrestige = Number(
+          (state as any).prestige
+        ) || 0;
+
+        // Если у человека уже был огромный баланс
+        // до появления системы престижа —
+        // автоматически переводим его в престиж.
+        const converted = convertToPrestige(
+          loadedBalance,
+          loadedPrestige
+        );
+
+        loadedBalance = converted.balance;
+
+        setBalance(loadedBalance);
+
+        setPrestige(converted.prestige);
+
+        setBet(
+          Math.min(
+            loadedBalance,
+            Math.max(
+              10,
+              Number(state.bet) || 50
+            )
+          )
+        );
+
         setHistory(state.history || []);
+
+        // Если произошла конвертация старого
+        // огромного баланса — сохраняем её.
+        if (converted.gained > 0) {
+          await supabase
+            .from("slots_state")
+            .update({
+              balance: converted.balance,
+              prestige: converted.prestige,
+            })
+            .eq("user_id", user.id);
+        }
       }
 
       if (profile) {
-        setTotalWon(profile.total_won);
-        setSpins(profile.spins);
-        setMaxBalance(profile.max_balance);
+        setTotalWon(
+          Number(profile.total_won) || 0
+        );
 
-        if (state && state.balance > profile.max_balance) {
-          setMaxBalance(state.balance);
-        }
+        setSpins(
+          Number(profile.spins) || 0
+        );
       }
-    } catch {
-      // ignore
+    } catch (error) {
+      console.error(
+        "Ошибка загрузки слотов:",
+        error
+      );
     } finally {
       setLoading(false);
     }
@@ -106,33 +232,88 @@ export default function SlotsView() {
   async function saveState(
     newBalance: number,
     newBet: number,
-    newHistory: { win: number; symbols: string }[],
-    won: number
+    newHistory: HistoryItem[],
+    won: number,
+    newPrestige: number
   ) {
     try {
-      await upsertSlotsState(newBalance, newBet, newHistory);
+      const user = (
+        await supabase.auth.getUser()
+      ).data.user;
+
+      if (!user) return;
+
+      /*
+       * Сохраняем всё сразу.
+       *
+       * Важно:
+       * balance всегда меньше 1 млрд,
+       * а prestige хранится отдельно.
+       */
+      await supabase
+        .from("slots_state")
+        .upsert(
+          {
+            user_id: user.id,
+            balance: newBalance,
+            bet: newBet,
+            history: newHistory,
+            prestige: newPrestige,
+          },
+          {
+            onConflict: "user_id",
+          }
+        );
 
       const newSpins = spins + 1;
-      const newTotalWon = totalWon + won;
-      const newMax = Math.max(maxBalance, newBalance);
+      const newTotalWon =
+        totalWon + won;
 
       setSpins(newSpins);
       setTotalWon(newTotalWon);
-      setMaxBalance(newMax);
 
-      await updateProfileStats(newMax, newTotalWon, newSpins);
-    } catch {
-      // silent fail
+      /*
+       * max_balance больше не используется
+       * как ограничитель баланса.
+       *
+       * Но оставляем статистику профиля,
+       * чтобы не ломать существующую систему.
+       */
+      const profile = await fetchProfile(user.id);
+
+      const currentMax =
+        Number(profile?.max_balance) || 0;
+
+      const newMax = Math.max(
+        currentMax,
+        newBalance
+      );
+
+      await updateProfileStats(
+        newMax,
+        newTotalWon,
+        newSpins
+      );
+    } catch (error) {
+      console.error(
+        "Ошибка сохранения слотов:",
+        error
+      );
     }
   }
 
   const spin = useCallback(() => {
-    if (spinning || balance < bet || bet < 10) return;
+    if (
+      spinning ||
+      balance < bet ||
+      bet < 10
+    ) {
+      return;
+    }
 
     setSpinning(true);
     setLastWin(null);
     setWinMessage(null);
-    setBalance((b) => b - bet);
 
     const finalSymbols = [
       pickWeighted(),
@@ -160,9 +341,10 @@ export default function SlotsView() {
         () => {
           clearInterval(interval);
 
-          spinTimers.current = spinTimers.current.filter(
-            (t) => t !== interval
-          );
+          spinTimers.current =
+            spinTimers.current.filter(
+              (t) => t !== interval
+            );
 
           setReels((prev) => {
             const copy = [...prev];
@@ -182,47 +364,106 @@ export default function SlotsView() {
               const all = finalSymbols;
 
               const allMatch =
-                all[0].emoji === all[1].emoji &&
-                all[1].emoji === all[2].emoji;
+                all[0].emoji ===
+                  all[1].emoji &&
+                all[1].emoji ===
+                  all[2].emoji;
 
               const twoMatch =
-                all[0].emoji === all[1].emoji ||
-                all[1].emoji === all[2].emoji ||
-                all[0].emoji === all[2].emoji;
+                all[0].emoji ===
+                  all[1].emoji ||
+                all[1].emoji ===
+                  all[2].emoji ||
+                all[0].emoji ===
+                  all[2].emoji;
 
               let win = 0;
               let msg: string | null = null;
 
               if (allMatch) {
-                win = bet * (PAYOUTS[all[0].emoji] || 5);
+                win =
+                  bet *
+                  (PAYOUTS[
+                    all[0].emoji
+                  ] ?? 5);
 
-                if (all[0].emoji === "💰") {
-                  msg = "ДЖЕКПОТ! Стипендия получена!";
-                } else if (all[0].emoji === "🔥") {
-                  msg = "Огненный выигрыш!";
+                if (
+                  all[0].emoji ===
+                  "💰"
+                ) {
+                  msg =
+                    "ДЖЕКПОТ! Стипендия получена!";
+                } else if (
+                  all[0].emoji ===
+                  "🔥"
+                ) {
+                  msg =
+                    "Огненный выигрыш!";
                 } else {
-                  msg = `Три в ряд! +${win}`;
+                  msg =
+                    `Три в ряд! +${win}`;
                 }
               } else if (twoMatch) {
                 const matchSym =
-                  all[0].emoji === all[1].emoji
+                  all[0].emoji ===
+                  all[1].emoji
                     ? all[0]
-                    : all[1].emoji === all[2].emoji
+                    : all[1].emoji ===
+                        all[2].emoji
                       ? all[1]
                       : all[0];
 
                 win = Math.floor(
-                  bet * (PAYOUTS[matchSym.emoji] || 5) * 0.3
+                  bet *
+                    (PAYOUTS[
+                      matchSym.emoji
+                    ] ?? 5) *
+                    0.3
                 );
 
-                msg = `Пара! +${win}`;
+                msg =
+                  `Пара! +${win}`;
               }
 
+              /*
+               * Сначала рассчитываем обычный
+               * результат спина.
+               */
+              const rawBalance =
+                balance -
+                bet +
+                win;
+
+              /*
+               * Проверяем миллиард.
+               *
+               * Например:
+               *
+               * 950 000 000
+               * + 100 000 000
+               *
+               * = prestige +1
+               * = balance 50 000 000
+               */
+              const converted =
+                convertToPrestige(
+                  rawBalance,
+                  prestige
+                );
+
               const newBalance =
-                win > 0 ? balance - bet + win : balance - bet;
+                converted.balance;
+
+              const newPrestige =
+                converted.prestige;
 
               setBalance(newBalance);
 
+              setPrestige(newPrestige);
+
+              /*
+               * Сообщение о выигрыше.
+               */
               if (win > 0) {
                 setLastWin(win);
                 setWinMessage(msg);
@@ -230,10 +471,27 @@ export default function SlotsView() {
                 setLastWin(0);
               }
 
+              /*
+               * Если получен престиж —
+               * показываем отдельное сообщение.
+               */
+              if (converted.gained > 0) {
+                setWinMessage(
+                  converted.gained === 1
+                    ? "🏅 НОВЫЙ ПРЕСТИЖ! +1"
+                    : `🏅 НОВЫЙ ПРЕСТИЖ! +${converted.gained}`
+                );
+              }
+
               const newHistory = [
                 {
                   win,
-                  symbols: all.map((s) => s.emoji).join(""),
+                  symbols:
+                    all
+                      .map(
+                        (s) => s.emoji
+                      )
+                      .join(""),
                 },
                 ...history.slice(0, 9),
               ];
@@ -244,7 +502,8 @@ export default function SlotsView() {
                 newBalance,
                 bet,
                 newHistory,
-                win
+                win,
+                newPrestige
               );
             }, 150);
           }
@@ -259,7 +518,7 @@ export default function SlotsView() {
     history,
     totalWon,
     spins,
-    maxBalance,
+    prestige,
   ]);
 
   const handleBetChange = (
@@ -274,12 +533,17 @@ export default function SlotsView() {
 
     const number = Number(value);
 
-    if (!Number.isFinite(number)) return;
+    if (!Number.isFinite(number)) {
+      return;
+    }
 
     setBet(
       Math.min(
         balance,
-        Math.max(10, Math.floor(number))
+        Math.max(
+          10,
+          Math.floor(number)
+        )
       )
     );
   };
@@ -289,6 +553,12 @@ export default function SlotsView() {
     bet >= 10 &&
     bet <= balance &&
     balance >= bet;
+
+  const progress =
+    Math.min(
+      100,
+      (balance / PRESTIGE_COST) * 100
+    );
 
   if (loading) {
     return (
@@ -300,45 +570,137 @@ export default function SlotsView() {
 
   return (
     <div className="space-y-4">
+
+      {/* БАЛАНС + ПРЕСТИЖ */}
       <div className="bg-gradient-to-br from-teal-600 to-teal-700 rounded-2xl p-5 text-white shadow-lg">
+
         <div className="flex items-center justify-between">
+
           <div>
             <p className="text-teal-100 text-xs font-medium">
               Баланс
             </p>
 
             <p className="text-3xl font-bold mt-0.5">
-              {balance.toLocaleString("ru-RU")} ₽
+              {balance.toLocaleString(
+                "ru-RU"
+              )} ₽
             </p>
           </div>
 
           <div className="w-12 h-12 rounded-full bg-white/20 flex items-center justify-center">
             <Trophy className="w-6 h-6 text-white" />
           </div>
+
+        </div>
+
+        {/* ПРЕСТИЖ */}
+        <div className="mt-4 bg-white/10 rounded-xl p-3">
+
+          <div className="flex items-center justify-between">
+
+            <div className="flex items-center gap-2">
+
+              <div className="w-9 h-9 rounded-lg bg-white/15 flex items-center justify-center text-xl">
+                {getPrestigeMedal(
+                  prestige
+                )}
+              </div>
+
+              <div>
+                <p className="text-xs text-teal-100">
+                  Престиж
+                </p>
+
+                <p className="text-base font-bold">
+                  ×{prestige.toLocaleString(
+                    "ru-RU"
+                  )}
+                </p>
+              </div>
+
+            </div>
+
+            <Medal className="w-5 h-5 text-white/70" />
+
+          </div>
+
+          {/* Прогресс */}
+          <div className="mt-3">
+
+            <div className="flex items-center justify-between mb-1">
+
+              <span className="text-[11px] text-teal-100">
+                До следующего
+              </span>
+
+              <span className="text-[11px] text-teal-100">
+                {Math.round(progress)}%
+              </span>
+
+            </div>
+
+            <div className="h-1.5 bg-white/15 rounded-full overflow-hidden">
+
+              <div
+                className="h-full bg-white rounded-full transition-all duration-500"
+                style={{
+                  width: `${progress}%`,
+                }}
+              />
+
+            </div>
+
+            <p className="text-[10px] text-teal-100 mt-1.5 text-right">
+              {(
+                PRESTIGE_COST -
+                balance
+              ).toLocaleString(
+                "ru-RU"
+              )} ₽
+            </p>
+
+          </div>
+
         </div>
 
         <div className="flex gap-3 mt-3">
-          {lastWin !== null && lastWin > 0 && (
-            <div className="bg-white/20 rounded-lg px-3 py-1.5 inline-flex items-center gap-1.5">
-              <Sparkles className="w-4 h-4 text-yellow-300" />
 
-              <span className="text-sm font-medium">
-                +{lastWin} ₽
-              </span>
-            </div>
-          )}
+          {lastWin !== null &&
+            lastWin > 0 && (
+              <div className="bg-white/20 rounded-lg px-3 py-1.5 inline-flex items-center gap-1.5">
+
+                <Sparkles className="w-4 h-4 text-yellow-300" />
+
+                <span className="text-sm font-medium">
+                  +{lastWin} ₽
+                </span>
+
+              </div>
+            )}
 
           <div className="bg-white/10 rounded-lg px-3 py-1.5 inline-flex items-center gap-1.5">
+
             <span className="text-xs text-teal-100">
-              Рекорд: {maxBalance.toLocaleString("ru-RU")} ₽
+              Медаль:{" "}
+              {getPrestigeMedal(
+                prestige
+              )}
             </span>
+
           </div>
+
         </div>
+
       </div>
 
+      {/* СЛОТЫ */}
       <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
+
         <div className="bg-gray-900 rounded-xl p-4 mb-4">
+
           <div className="flex items-center justify-center gap-2">
+
             {reels.map((reel, i) => (
               <div
                 key={i}
@@ -350,33 +712,47 @@ export default function SlotsView() {
               >
                 <span
                   className={
-                    reel.spinning ? "animate-pulse" : ""
+                    reel.spinning
+                      ? "animate-pulse"
+                      : ""
                   }
                 >
                   {reel.symbol.emoji}
                 </span>
               </div>
             ))}
+
           </div>
+
         </div>
 
         {winMessage && (
           <div className="text-center mb-3">
+
             <p className="text-sm font-bold text-teal-600 animate-pulse">
               {winMessage}
             </p>
+
           </div>
         )}
 
+        {/* СТАВКА */}
         <div className="flex items-center justify-between mb-3">
+
           <span className="text-xs font-medium text-gray-500">
             Ставка
           </span>
 
           <div className="flex items-center gap-2">
+
             <button
               onClick={() =>
-                setBet((b) => Math.max(10, b - 10))
+                setBet((b) =>
+                  Math.max(
+                    10,
+                    b - 10
+                  )
+                )
               }
               disabled={spinning}
               className="w-8 h-8 rounded-lg bg-gray-100 text-gray-600 font-bold flex items-center justify-center disabled:opacity-40"
@@ -390,8 +766,14 @@ export default function SlotsView() {
               min="10"
               max={balance}
               step="1"
-              value={bet === 0 ? "" : bet}
-              onChange={handleBetChange}
+              value={
+                bet === 0
+                  ? ""
+                  : bet
+              }
+              onChange={
+                handleBetChange
+              }
               disabled={spinning}
               aria-label="Сумма ставки"
               className="text-sm font-bold text-gray-900 w-16 h-8 text-center bg-gray-50 rounded-lg px-1 outline-none border border-transparent focus:border-teal-500 focus:ring-2 focus:ring-teal-100 disabled:opacity-40"
@@ -406,7 +788,10 @@ export default function SlotsView() {
                 setBet((b) =>
                   Math.min(
                     balance,
-                    Math.max(10, b + 10)
+                    Math.max(
+                      10,
+                      b + 10
+                    )
                   )
                 )
               }
@@ -415,7 +800,9 @@ export default function SlotsView() {
             >
               +
             </button>
+
           </div>
+
         </div>
 
         <button
@@ -427,108 +814,168 @@ export default function SlotsView() {
               : "bg-gray-200 text-gray-400 cursor-not-allowed"
           }`}
         >
+
           <Dices
             className={`w-5 h-5 ${
-              spinning ? "animate-spin" : ""
+              spinning
+                ? "animate-spin"
+                : ""
             }`}
           />
 
-          {spinning ? "Крутим..." : "Крутить"}
+          {spinning
+            ? "Крутим..."
+            : "Крутить"}
+
         </button>
 
-        {balance < bet && !spinning && (
-          <p className="text-center text-xs text-red-500 mt-2">
-            Не хватает баланса на ставку
-          </p>
-        )}
+        {balance < bet &&
+          !spinning && (
+            <p className="text-center text-xs text-red-500 mt-2">
+              Не хватает баланса
+              на ставку
+            </p>
+          )}
 
-        {bet > 0 && bet < 10 && !spinning && (
-          <p className="text-center text-xs text-red-500 mt-2">
-            Минимальная ставка — 10 ₽
-          </p>
-        )}
+        {bet > 0 &&
+          bet < 10 &&
+          !spinning && (
+            <p className="text-center text-xs text-red-500 mt-2">
+              Минимальная ставка —
+              10 ₽
+            </p>
+          )}
+
       </div>
 
+      {/* ВЫПЛАТЫ */}
       <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4">
+
         <h3 className="text-sm font-semibold text-gray-700 mb-3">
           Выплаты (3 в ряд)
         </h3>
 
         <div className="grid grid-cols-3 gap-2">
+
           {SYMBOLS.map((sym) => (
             <div
               key={sym.emoji}
               className="flex flex-col items-center bg-gray-50 rounded-lg py-2"
             >
+
               <span className="text-2xl mb-1">
                 {sym.emoji}
               </span>
 
               <span className="text-xs font-bold text-gray-700">
-                ×{PAYOUTS[sym.emoji] || 5}
+                ×
+                {PAYOUTS[
+                  sym.emoji
+                ] ?? 5}
               </span>
+
             </div>
           ))}
+
         </div>
 
         <p className="text-xs text-gray-400 mt-2 text-center">
           Пара символов = 30% от выплаты
         </p>
+
       </div>
 
+      {/* ИСТОРИЯ */}
       {history.length > 0 && (
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4">
+
           <h3 className="text-sm font-semibold text-gray-700 mb-3">
             История
           </h3>
 
           <div className="space-y-1.5">
-            {history.map((h, i) => (
-              <div
-                key={i}
-                className="flex items-center justify-between text-sm"
-              >
-                <span className="text-lg">
-                  {h.symbols}
-                </span>
 
-                <span
-                  className={
-                    h.win > 0
-                      ? "text-teal-600 font-medium"
-                      : "text-gray-400"
-                  }
+            {history.map(
+              (h, i) => (
+                <div
+                  key={i}
+                  className="flex items-center justify-between text-sm"
                 >
-                  {h.win > 0 ? `+${h.win} ₽` : "—"}
-                </span>
-              </div>
-            ))}
+
+                  <span className="text-lg">
+                    {h.symbols}
+                  </span>
+
+                  <span
+                    className={
+                      h.win > 0
+                        ? "text-teal-600 font-medium"
+                        : "text-gray-400"
+                    }
+                  >
+                    {h.win > 0
+                      ? `+${h.win} ₽`
+                      : "—"}
+                  </span>
+
+                </div>
+              )
+            )}
+
           </div>
+
         </div>
       )}
 
+      {/* ПОПОЛНЕНИЕ */}
       {balance < bet && (
         <button
           onClick={async () => {
             const newBalance = 1000;
 
-            setBalance(newBalance);
+            setBalance(
+              newBalance
+            );
+
             setBet(50);
+
             setLastWin(null);
+
             setWinMessage(null);
 
-            await upsertSlotsState(
-              newBalance,
-              50,
-              history
-            );
+            const user = (
+              await supabase.auth.getUser()
+            ).data.user;
+
+            if (user) {
+              await supabase
+                .from("slots_state")
+                .upsert(
+                  {
+                    user_id: user.id,
+                    balance:
+                      newBalance,
+                    bet: 50,
+                    history,
+                    prestige,
+                  },
+                  {
+                    onConflict:
+                      "user_id",
+                  }
+                );
+            }
           }}
           className="w-full flex items-center justify-center gap-2 py-2.5 px-4 bg-gray-100 text-gray-500 rounded-xl font-medium text-sm hover:bg-gray-200 transition-colors"
         >
+
           <RotateCcw className="w-4 h-4" />
+
           Пополнить баланс
+
         </button>
       )}
+
     </div>
   );
 }
